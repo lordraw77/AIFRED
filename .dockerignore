@@ -1,0 +1,7 @@
+# Allow-list: only what the image needs enters the build context, so nothing local
+# (.env, data, keys, git history, tests, caches) can end up in a layer.
+*
+!aifred
+!requirements.lock
+**/__pycache__
+**/*.pyc

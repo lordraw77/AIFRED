@@ -40,3 +40,11 @@ sandbox/runner.py
 # Lab vault: unseal keys and root token
 deploy/vault/init.json
 graphify-out/
+
+# Local data directory
+data/
+
+# Deployment secrets and backups (scripts/setup.sh, scripts/backup.sh)
+openbao-unseal.key
+openbao-root.token
+backups/

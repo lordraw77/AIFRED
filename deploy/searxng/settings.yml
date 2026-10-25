@@ -1,0 +1,10 @@
+# Minimal SearXNG settings for AIFRED's web_search tool: the JSON format must be enabled,
+# and the limiter is off because only the AIFRED container can reach the service.
+use_default_settings: true
+search:
+  formats:
+    - html
+    - json
+server:
+  limiter: false
+  image_proxy: false
