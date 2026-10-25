@@ -1,0 +1,42 @@
+# Local configuration and secrets
+.env
+deploy/compose/infra.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Angular
+node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/e2e/.results/
+frontend/e2e/.auth/
+frontend/docs-shots/.results/
+
+# Build output
+dist/
+
+# Claude Code local configuration
+.claude/
+
+# Brand kit archive (contents live in docs/brand/)
+forge-brand.zip
+
+# OpenSearch certificates and users (scripts/gen-env.sh)
+deploy/compose/search/certs/
+deploy/compose/search/internal_users.yml
+deploy/compose/extra-ca/*.pem
+
+# Copied from backend/src/forge/sandbox by scripts/sync-sandbox.sh
+sandbox/server.py
+sandbox/runner.py
+
+# Lab vault: unseal keys and root token
+deploy/vault/init.json
+graphify-out/
