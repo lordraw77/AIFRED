@@ -72,6 +72,8 @@ class DoneEvent(Event):
 
     type: ClassVar[str] = "done"
     content: str
+    usage: dict[str, int] = field(default_factory=dict)
+    model: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,7 @@ class ErrorEvent(Event):
 
     type: ClassVar[str] = "error"
     message: str
+    code: str = "error"  # no_provider, route, model, empty: lets a gateway pick a status code
 
 
 @dataclass(frozen=True)
@@ -182,6 +185,13 @@ class Agent:
             if skills:
                 lines += ["", "## Skills (load one with skill_view when it fits the task)"]
                 lines += [f"- {name}: {desc}" for name, desc in skills]
+        if "knowledge_search" in names:
+            collections = s.rag.collections()
+            if collections:
+                lines += ["", "## Knowledge base (the user's own documents; search it with knowledge_search and cite the source)"]
+                for c in collections[:15]:
+                    detail = f": {c['description'][:120]}" if c["description"] else ""
+                    lines.append(f"- {c['name']}{detail} ({c['documents']} documents)")
         lines += [
             "", "## Guidelines",
             "- Be concise. Never invent results: if you did not run or read something, say so.",
@@ -206,7 +216,7 @@ class Agent:
     # Turns
 
     async def run(
-        self, session_id: str, text: str, source: str, *, restricted: bool = False
+        self, session_id: str, text: str, source: str, *, restricted: bool = False, route: str | None = None
     ) -> AsyncIterator[Event]:
         """Run one turn.
 
@@ -215,31 +225,33 @@ class Agent:
             text: The user's message.
             source: Gateway name (``cli``, ``telegram``, ``api``, ``web``).
             restricted: Whether the caller is an open-gateway user with reduced capabilities.
+            route: Route name or ``provider/model`` for this turn only (the API's ``model`` field);
+                by default the session's choice, else the gateway's route.
 
         Yields:
             Events ending with :class:`DoneEvent` or :class:`ErrorEvent`.
         """
         if not text.strip():
-            yield ErrorEvent("Empty message.")
+            yield ErrorEvent("Empty message.", "empty")
             return
         lock = self._locks.get(session_id)
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
         async with lock:
-            async for event in self._turn(session_id, text, source, restricted):
+            async for event in self._turn(session_id, text, source, restricted, route):
                 yield event
 
-    async def reply(self, session_id: str, text: str, source: str, *, restricted: bool = False) -> str:
+    async def reply(self, session_id: str, text: str, source: str, *, restricted: bool = False, route: str | None = None) -> str:
         """Run a turn and return only the final text (or the error message)."""
         final = ""
-        async for event in self.run(session_id, text, source, restricted=restricted):
+        async for event in self.run(session_id, text, source, restricted=restricted, route=route):
             if isinstance(event, DoneEvent):
                 final = event.content
             elif isinstance(event, ErrorEvent):
                 final = event.message
         return final
 
-    async def _turn(self, session_id: str, text: str, source: str, restricted: bool) -> AsyncIterator[Event]:
+    async def _turn(self, session_id: str, text: str, source: str, restricted: bool, route: str | None = None) -> AsyncIterator[Event]:
         s = self._s
         cfg = s.config
         ctx = ToolContext(s, session_id, source, restricted)
@@ -251,18 +263,20 @@ class Agent:
         ]
         await asyncio.to_thread(s.store.add_message, session_id, "user", text)
 
+        route_name = route or self.route_spec(session_id, source)
         try:
-            entries = s.llm.resolve(self.route_spec(session_id, source), "default")
+            entries = s.llm.resolve(route_name, "default")
         except NoProvider as exc:
-            yield ErrorEvent(str(exc))
+            yield ErrorEvent(str(exc), "no_provider")
             return
         except RouteError as exc:
-            yield ErrorEvent(f"{exc}. Use /model to pick another route.")
+            yield ErrorEvent(f"{exc}. Use /model to pick another route.", "route")
             return
 
         tools = s.tools.schemas(ctx)
         limit = int(cfg.get("MAX_ITERATIONS"))
-        route_name = self.route_spec(session_id, source)
+        prompt_tokens = completion_tokens = 0
+        served_by = ""
         for _ in range(limit):
             completed: Completed | None = None
             try:
@@ -281,10 +295,14 @@ class Agent:
                     elif isinstance(ev, Completed):
                         completed = ev
             except (RouteError, LLMError) as exc:
-                yield ErrorEvent(str(exc))
+                yield ErrorEvent(str(exc), "model")
                 return
             assert completed is not None
             result = completed.result
+            prompt_tokens += result.usage.prompt
+            completion_tokens += result.usage.completion
+            served_by = completed.entry.label
+            usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}
             assistant: dict[str, Any] = {"role": "assistant", "content": result.content or None}
             if result.tool_calls:
                 assistant["tool_calls"] = result.tool_calls
@@ -293,7 +311,7 @@ class Agent:
                 s.store.add_message, session_id, "assistant", result.content or None, result.tool_calls or None
             )
             if not result.tool_calls:
-                yield DoneEvent(result.content)
+                yield DoneEvent(result.content, usage, served_by)
                 return
             for call in result.tool_calls:
                 name, arguments = call["function"]["name"], call["function"]["arguments"]
@@ -308,4 +326,4 @@ class Agent:
             "Tell me to continue if you want me to go on."
         )
         await asyncio.to_thread(s.store.add_message, session_id, "assistant", final)
-        yield DoneEvent(final)
+        yield DoneEvent(final, usage, served_by)

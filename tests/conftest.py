@@ -13,7 +13,9 @@ from aifred.app import Services, create_app
 from aifred.config import Settings
 from aifred.store import Store
 from tests.fake_llm import FakeLLM
+from tests.fake_mcp import FakeMcp
 from tests.fake_openbao import FakeOpenBao
+from tests.rag_support import KB
 
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "correct horse battery"
@@ -68,6 +70,23 @@ def fake_llm() -> Iterator[Callable[[], FakeLLM]]:
 
 
 @pytest.fixture
+def fake_mcp(tmp_path: Path) -> Iterator[Callable[..., FakeMcp]]:
+    """Factory for running fake MCP servers (``tls=True`` for HTTPS); all are stopped after the test."""
+    servers: list[FakeMcp] = []
+
+    def make(tls: bool = False, **options: object) -> FakeMcp:
+        directory = tmp_path / f"mcp{len(servers)}"
+        directory.mkdir()
+        server = FakeMcp(tls=directory if tls else None, **options).start()  # type: ignore[arg-type]
+        servers.append(server)
+        return server
+
+    yield make
+    for server in servers:
+        server.stop()
+
+
+@pytest.fixture
 def services(settings: Settings) -> Iterator[Services]:
     """Services over a fresh data directory with the admin bootstrapped."""
     svc = Services.open(settings)
@@ -100,3 +119,15 @@ def fake_openbao() -> Iterator[FakeOpenBao]:
     server = FakeOpenBao().start()
     yield server
     server.stop()
+
+
+@pytest.fixture
+def kb(services: Services, fake_llm: Callable[[], FakeLLM]) -> KB:
+    """A knowledge base switched on, with a fake embedding provider and no sleeping between retries."""
+    from aifred.embeddings import EmbeddingClient
+
+    fake = fake_llm()
+    services.providers.create({"slug": "emb", "type": "local", "base_url": fake.url})
+    services.config.update({"RAG_ENABLED": True, "RAG_EMBED_PROVIDER": "emb", "RAG_EMBED_MODEL": "embed-1"})
+    services.rag.embedder = EmbeddingClient(sleep=lambda s: None)
+    return KB(services, fake)

@@ -94,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"aifred {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the API, the dashboard and the Telegram poller")
+    chat = commands.add_parser("cli", help="chat with the agent in the terminal")
+    chat.add_argument("--session", help="resume this session id (default: a new one)")
+    chat.add_argument("-m", "--message", action="append", help="send this message and exit (repeatable); no interactive prompt")
     admin = commands.add_parser("admin", help="admin account maintenance")
     admin_commands = admin.add_subparsers(dest="admin_command", required=True)
     reset = admin_commands.add_parser("reset-password", help="set a new admin password")
@@ -105,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     if args.command == "serve":
         return _serve(settings)
+    if args.command == "cli":
+        from aifred.gateways.cli import run_cli
+
+        return run_cli(settings, session=args.session, messages=args.message)
     if args.admin_command == "migrate-secrets":
         return _migrate_secrets(settings)
     return _reset_password(settings, args.password_stdin)

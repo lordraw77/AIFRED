@@ -36,7 +36,9 @@ async def test_plain_answer(services: Services, llm_ready: FakeLLM) -> None:
     llm_ready.queue(Text("Hi there!", chunks=3))
     events = await run(services, "hello")
     assert types(events) == ["token", "token", "token", "done"]
-    assert events[-1] == DoneEvent("Hi there!")
+    done = events[-1]
+    assert isinstance(done, DoneEvent) and done.content == "Hi there!"
+    assert done.usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15} and done.model == "fake/test-model"
     assert "".join(e.text for e in events if isinstance(e, TokenEvent)) == "Hi there!"
     assert [(m["role"], m["content"]) for m in services.store.messages("cli:1")] == [("user", "hello"), ("assistant", "Hi there!")]
     assert services.store.get_session("cli:1")["title"] == "hello"  # type: ignore[index]
@@ -49,7 +51,7 @@ async def test_events_serialise(services: Services) -> None:
     assert ToolCallEvent("memory", "{}").to_dict() == {"type": "tool_call", "name": "memory", "arguments": "{}"}
     assert ToolResultEvent("memory", "ok").to_dict()["type"] == "tool_result"
     assert ResetEvent().to_dict() == {"type": "reset"}
-    assert ErrorEvent("x").to_dict() == {"type": "error", "message": "x"}
+    assert ErrorEvent("x").to_dict() == {"type": "error", "message": "x", "code": "error"}
 
 
 async def test_tool_round_trip_is_stored_and_replayed(services: Services, llm_ready: FakeLLM) -> None:
@@ -264,3 +266,24 @@ async def test_closing_the_generator_releases_the_session_lock(services: Service
     await gen.aclose()  # client disconnected mid-answer
     events = await asyncio.wait_for(run(services, "second"), 5)
     assert isinstance(events[-1], DoneEvent)
+
+
+async def test_usage_is_summed_over_the_tool_rounds(services: Services, llm_ready: FakeLLM) -> None:
+    llm_ready.queue(ToolCall("session_search", {"query": "x"}), Text("answer", usage=(20, 4)))
+    events = await run(services, "hello")
+    done = events[-1]
+    assert isinstance(done, DoneEvent) and done.usage == {"prompt_tokens": 12 + 20, "completion_tokens": 7 + 4, "total_tokens": 43}
+
+
+async def test_a_route_can_be_chosen_for_one_turn_only(services: Services, llm_ready: FakeLLM, fake_llm: Any) -> None:
+    other = fake_llm()
+    p = services.providers.create({"slug": "other", "type": "local", "base_url": other.url})
+    services.providers.save_models(p.id, [{"model_id": "test-model"}])
+    services.store.model_set_test(p.id, "test-model", True)
+    other.queue(Text("from the other"))
+    events = [e async for e in services.agent.run("api:x", "hi", "api", route="other/test-model")]
+    assert isinstance(events[-1], DoneEvent) and events[-1].content == "from the other" and events[-1].model == "other/test-model"
+    assert services.agent.route_spec("api:x", "api") == "default"  # nothing was remembered
+    assert llm_ready.requests == []
+    bad = [e async for e in services.agent.run("api:x", "hi", "api", route="nowhere")]
+    assert types(bad) == ["error"] and "unknown route" in bad[0].message  # type: ignore[attr-defined]

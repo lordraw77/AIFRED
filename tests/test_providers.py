@@ -213,3 +213,29 @@ def test_cloudflare_catalogue_uses_search_endpoint_and_name_field(services: Serv
     assert [m["model_id"] for m in services.providers._parse_models(payload, "cloudflare")] == [
         "@cf/openai/gpt-oss-120b", "@cf/meta/llama-3.1-8b-instruct",
     ]
+
+
+def test_embeddings_url_and_usable_key(services: Services, fake_llm: Callable[[], FakeLLM]) -> None:
+    oll = services.providers.create({"slug": "oll", "type": "ollama", "base_url": "http://10.0.0.5:11434"})
+    assert oll.embeddings_url == "http://10.0.0.5:11434/v1/embeddings"
+    p = add(services, fake_llm(), key="first-key-value")
+    second = services.providers.add_key(p.id, "second-key-value")
+    [k1, _] = services.store.key_list(p.id)
+    assert services.providers.usable_key(p) == "first-key-value"
+    services.store.health_set("key", str(k1["id"]), "disabled", None, 1, "invalid key", "401")
+    assert services.providers.usable_key(p) == "second-key-value"  # a key marked invalid is skipped
+    services.store.health_set("key", str(second), "disabled", None, 1, "invalid key", "401")
+    assert services.providers.usable_key(p) is None
+    assert services.providers.usable_key(oll) is None  # keyless provider
+    assert p.embeddings_url.endswith("/v1/embeddings")
+
+
+def test_embedding_target_timeout_follows_the_provider(services: Services, fake_llm: Callable[[], FakeLLM]) -> None:
+    from aifred.providers import embed_target
+
+    local = add(services, fake_llm())  # a local engine: first_token 120 s, so a cold model load may take up to 240 s
+    hosted = services.providers.create({"slug": "g", "type": "groq"})  # hosted: first_token 30 s
+    assert embed_target(local, "m", None).total == 240.0 and embed_target(hosted, "m", "k").total == 60.0
+    short = services.providers.update(local.id, {"total_timeout": 100})
+    assert embed_target(short, "m", None).total == 100.0  # never longer than the provider's own total
+    assert embed_target(hosted, "m", "k").url.endswith("/openai/v1/embeddings") and embed_target(hosted, "m", "k").api_key == "k"

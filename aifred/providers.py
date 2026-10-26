@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from aifred.embeddings import EmbeddingClient, EmbeddingError, EmbedTarget, cosine
 from aifred.llm import (
     Done,
     Endpoint,
@@ -152,6 +153,14 @@ class Provider:
         if self.type == "ollama" and not base.endswith("/v1"):
             base += "/v1"
         return f"{base}/chat/completions"
+
+    @property
+    def embeddings_url(self) -> str:
+        """URL of the OpenAI-compatible embeddings endpoint (Ollama through its ``/v1``)."""
+        base = self.base_url.rstrip("/")
+        if self.type == "ollama" and not base.endswith("/v1"):
+            base += "/v1"
+        return f"{base}/embeddings"
 
     @property
     def models_url(self) -> str:
@@ -456,6 +465,7 @@ class ProviderService:
             "model_id": row["model_id"], "context_window": row["context_window"], "tools": flag(row["tools"]),
             "streaming": flag(row["streaming"]), "vision": flag(row["vision"]),
             "thinking_control": row["thinking_control"], "price_in": row["price_in"], "price_out": row["price_out"],
+            "kind": row["kind"], "dim": row["dim"],
             "manual": bool(row["manual"]), "available": bool(row["available"]), "test_ok": flag(row["test_ok"]),
             "test_at": row["test_at"], "test_error": row["test_error"],
         }
@@ -468,6 +478,10 @@ class ProviderService:
             if not MODEL_ID_RE.match(model_id):
                 raise ProviderError(f"invalid model id {model_id!r}")
             values: dict[str, Any] = {}
+            if "kind" in m:
+                if m["kind"] not in ("chat", "embedding"):
+                    raise ProviderError("kind must be 'chat' or 'embedding'")
+                values["kind"] = m["kind"]
             if "thinking_control" in m:
                 if m["thinking_control"] not in THINKING_CONTROLS:
                     raise ProviderError(f"thinking_control must be one of: {', '.join(THINKING_CONTROLS)}")
@@ -595,6 +609,49 @@ class ProviderService:
         self._store.model_upsert_listed(provider_id, listed)
         return self.models(provider_id)
 
+    def usable_key(self, provider: Provider) -> str | None:
+        """The first stored key that has not been marked invalid, or ``None`` for a keyless provider.
+
+        Raises:
+            ProviderError: If the secret store cannot be reached.
+        """
+        try:
+            for k in self._store.key_list(provider.id):
+                health = self._store.health_get("key", str(k["id"]))
+                if health and health["state"] == "disabled":
+                    continue
+                if value := self._vault.get(self._secret(k["id"])):
+                    return value
+        except VaultUnavailable as exc:
+            raise ProviderError(f"the secret store is unavailable ({exc})") from None
+        return None
+
+    def test_embedding_model(self, provider_id: int, model_id: str, client: EmbeddingClient | None = None) -> dict[str, Any]:
+        """Embed two related sentences and one unrelated one; the related pair must score higher.
+
+        The model becomes kind ``embedding``. The result carries the dimension and the latency.
+        """
+        provider = self.get(provider_id)
+        if not MODEL_ID_RE.match(model_id):
+            raise ProviderError(f"invalid model id {model_id!r}")
+        if self._store.model_get(provider_id, model_id) is None:
+            self._store.model_save(provider_id, model_id, {"kind": "embedding"}, manual=True)
+        target = embed_target(provider, model_id, self.usable_key(provider))
+        texts = ["How do I back up a virtual machine?", "Backing up a virtual machine before the upgrade", "The recipe needs two eggs and flour"]
+        started = time.monotonic()
+        ok, dim, error = False, None, ""
+        try:
+            vectors = (client or EmbeddingClient()).embed(target, texts).vectors
+            dim = int(vectors.shape[1])
+            related, unrelated = cosine(vectors[0], vectors[1]), cosine(vectors[0], vectors[2])
+            ok = related > unrelated
+            if not ok:
+                error = f"related texts scored {related:.2f}, unrelated {unrelated:.2f}: the model does not separate them"
+        except EmbeddingError as exc:
+            error = str(exc)
+        self._store.model_set_embedding_test(provider_id, model_id, ok, dim, error)
+        return {"model_id": model_id, "ok": ok, "dim": dim if ok else None, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
+
     async def test_model(self, provider_id: int, model_id: str, key_id: int | None = None) -> dict[str, Any]:
         """Send a minimal tool-calling request and record whether the model calls the tool."""
         provider = self.get(provider_id)
@@ -635,6 +692,15 @@ class ProviderService:
             error = "timed out"
         self._store.model_set_test(provider_id, model_id, ok, error)
         return {"model_id": model_id, "ok": ok, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
+
+
+def embed_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:
+    """Resolve where and how to embed for a provider and model."""
+    return EmbedTarget(
+        url=provider.embeddings_url, model=model, api_key=api_key, headers=provider.headers,
+        verify=provider.verify_tls, connect=provider.connect,
+        total=min(provider.total, max(provider.first_token * 2, 60.0)),  # a local engine may load the model on the first call
+    )
 
 
 def _json_object(text: str) -> bool:

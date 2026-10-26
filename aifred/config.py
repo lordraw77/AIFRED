@@ -72,7 +72,7 @@ class Settings(BaseSettings):
 
 Kind = Literal["str", "int", "float", "bool", "enum", "json", "list", "int_list", "url", "secret"]
 
-_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|terminal|mcp|mcp:[a-z0-9_]{1,24})$")
+_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|terminal|mcp|mcp:[a-z0-9_]{1,24})$")
 _URL_RE = re.compile(r"^https?://[^\s/]+(/\S*)?$")
 
 
@@ -157,6 +157,18 @@ SETTING_SPECS: dict[str, SettingSpec] = {
             "INSTRUCTIONS_BUDGET", "int", 3000, "agent", "Maximum characters of the Capabilities prompt section",
             minimum=500, maximum=50000,
         ),
+        SettingSpec("RAG_ENABLED", "bool", False, "knowledge", "Turn the local knowledge base on (ingestion, API, tools)"),
+        SettingSpec("RAG_EMBED_PROVIDER", "str", None, "knowledge", "Provider slug of the embedding model (empty: keyword search only)", nullable=True),
+        SettingSpec("RAG_EMBED_MODEL", "str", None, "knowledge", "Embedding model; overridable per collection", nullable=True),
+        SettingSpec("RAG_CHUNK_CHARS", "int", 1200, "knowledge", "Target chunk size in characters", minimum=300, maximum=4000),
+        SettingSpec("RAG_CHUNK_OVERLAP", "int", 150, "knowledge", "Characters repeated between consecutive chunks", minimum=0, maximum=1000),
+        SettingSpec("RAG_EMBED_BATCH", "int", 16, "knowledge", "Chunks per embedding request", minimum=1, maximum=128),
+        SettingSpec("RAG_TOP_K", "int", 5, "knowledge", "Results returned by default", minimum=1, maximum=10),
+        SettingSpec("RAG_MIN_SIMILARITY", "float", 0.30, "knowledge", "Dense candidates below this cosine similarity are dropped", minimum=0.0, maximum=1.0),
+        SettingSpec("RAG_MAX_DOCUMENT_BYTES", "int", 5_242_880, "knowledge", "Largest document accepted", minimum=1024, maximum=104_857_600),
+        SettingSpec("RAG_MAX_CHUNKS", "int", 100_000, "knowledge", "Cap on chunks in the whole knowledge base", minimum=100, maximum=10_000_000),
+        SettingSpec("RAG_CACHE_MB", "int", 512, "knowledge", "Memory for cached vector matrices (0: no cache, scan the database)", minimum=0, maximum=65_536),
+        SettingSpec("RAG_SCAN_MINUTES", "int", 0, "knowledge", "Rescan the knowledge folder every N minutes (0: only on request)", minimum=0, maximum=10_080),
     ]
 }
 

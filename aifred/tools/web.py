@@ -153,12 +153,12 @@ class WebTools:
         self.resolver = resolver
         self.client_factory = client_factory
 
-    def fetch(self, url: str, max_chars: int, *, allow_private: bool) -> str:
-        """Fetch a page and return its text with a short header.
+    def _get(self, url: str, allow_private: bool, handler: Callable[[httpx.Response, str], Any]) -> Any:
+        """GET a URL, following redirects by hand and re-checking every hop, then hand the response to ``handler``.
 
         Raises:
             BlockedURL: If any hop is not allowed.
-            ValueError: For network errors, bad status or unsupported content.
+            ValueError: For network errors or too many redirects.
         """
         current = check_url(url, allow_private=allow_private, resolver=self.resolver)
         with self.client_factory() as client:
@@ -173,10 +173,44 @@ class WebTools:
                                 allow_private=allow_private, resolver=self.resolver,
                             )
                             continue
-                        return self._read(response, current, max_chars)
+                        return handler(response, current)
                 except httpx.HTTPError as exc:
                     raise ValueError(f"request failed: {type(exc).__name__}: {exc}"[:300]) from None
         raise ValueError("too many redirects")  # pragma: no cover - loop always returns or raises
+
+    def fetch(self, url: str, max_chars: int, *, allow_private: bool) -> str:
+        """Fetch a page and return its text with a short header.
+
+        Raises:
+            BlockedURL: If any hop is not allowed.
+            ValueError: For network errors, bad status or unsupported content.
+        """
+        result: str = self._get(url, allow_private, lambda response, current: self._read(response, current, max_chars))
+        return result
+
+    def fetch_raw(self, url: str, max_bytes: int, *, allow_private: bool) -> tuple[str, str, bytes]:
+        """Download a document as bytes (for the knowledge base).
+
+        Returns:
+            The final URL, the content type (without parameters) and the body.
+
+        Raises:
+            BlockedURL: If any hop is not allowed.
+            ValueError: For network errors, a bad status or a body larger than ``max_bytes``.
+        """
+
+        def read(response: httpx.Response, current: str) -> tuple[str, str, bytes]:
+            if response.status_code >= 400:
+                raise ValueError(f"HTTP {response.status_code} from {current}")
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > max_bytes:
+                    raise ValueError(f"the document is larger than {max_bytes:,} bytes")
+            return current, response.headers.get("content-type", "").split(";")[0].strip().lower(), bytes(data)
+
+        result: tuple[str, str, bytes] = self._get(url, allow_private, read)
+        return result
 
     @staticmethod
     def _read(response: httpx.Response, url: str, max_chars: int) -> str:

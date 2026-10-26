@@ -135,3 +135,31 @@ def test_failing_listener_does_not_break_update(config: RuntimeConfig) -> None:
     config.subscribe(boom)
     assert config.update({"LOG_LEVEL": "DEBUG"}) == {"LOG_LEVEL"}
     assert config.get("LOG_LEVEL") == "DEBUG"
+
+
+def test_knowledge_base_settings(config: RuntimeConfig) -> None:
+    assert config.get("RAG_ENABLED") is False and config.get("RAG_EMBED_PROVIDER") is None and config.get("RAG_EMBED_MODEL") is None
+    assert (config.get("RAG_CHUNK_CHARS"), config.get("RAG_CHUNK_OVERLAP"), config.get("RAG_EMBED_BATCH"), config.get("RAG_TOP_K")) == (1200, 150, 16, 5)
+    assert (config.get("RAG_MIN_SIMILARITY"), config.get("RAG_MAX_DOCUMENT_BYTES"), config.get("RAG_MAX_CHUNKS")) == (0.30, 5_242_880, 100_000)
+    assert (config.get("RAG_CACHE_MB"), config.get("RAG_SCAN_MINUTES")) == (512, 0)  # memory is larger by default and configurable
+    config.update({"RAG_ENABLED": "true", "RAG_EMBED_PROVIDER": "ollama", "RAG_EMBED_MODEL": "bge-m3", "RAG_CACHE_MB": 2048, "RAG_MAX_CHUNKS": 500000})
+    assert config.get("RAG_CACHE_MB") == 2048 and config.get("RAG_EMBED_MODEL") == "bge-m3"
+    config.update({"RAG_EMBED_MODEL": ""})
+    assert config.get("RAG_EMBED_MODEL") is None  # empty clears it: keyword-only search
+    config.update({"RAG_CACHE_MB": 0})
+    assert config.get("RAG_CACHE_MB") == 0  # 0 turns the cache off
+
+
+@pytest.mark.parametrize(
+    ("key", "raw"),
+    [("RAG_CHUNK_CHARS", 100), ("RAG_CHUNK_CHARS", 9000), ("RAG_CHUNK_OVERLAP", -1), ("RAG_EMBED_BATCH", 0), ("RAG_TOP_K", 11),
+     ("RAG_MIN_SIMILARITY", 1.5), ("RAG_MAX_DOCUMENT_BYTES", 10), ("RAG_MAX_CHUNKS", 5), ("RAG_CACHE_MB", -1), ("RAG_ENABLED", "perhaps")],
+)
+def test_knowledge_base_settings_are_validated(key: str, raw: object) -> None:
+    with pytest.raises(SettingError):
+        parse_value(SETTING_SPECS[key], raw)
+
+
+def test_knowledge_is_a_known_toolset() -> None:
+    assert parse_value(SETTING_SPECS["TOOLSETS"], "memory,knowledge") == ["memory", "knowledge"]
+    assert parse_value(SETTING_SPECS["TOOLSETS_CLI"], ["knowledge"]) == ["knowledge"]

@@ -98,6 +98,34 @@ class Received:
     headers: dict[str, str]
 
 
+SYNONYMS = [
+    ("car", "automobile", "vehicle", "auto", "macchina"),
+    ("backup", "snapshot", "dump", "copia"),
+    ("upgrade", "update", "aggiornamento", "aggiornare"),
+    ("error", "failure", "fault", "errore"),
+    ("fast", "quick", "rapid", "veloce"),
+    ("disk", "storage", "drive", "disco"),
+]
+_CANONICAL = {word: group[0] for group in SYNONYMS for word in group}
+_STOPWORDS = frozenset("the a an to of and or is are in on for with how do does i my what why when it this that be".split())
+
+
+def fake_embedding(text: str, dim: int = 256) -> list[float]:
+    """A deterministic bag-of-words embedding where synonyms share a dimension (L2-normalised)."""
+    import hashlib
+    import math
+    import re
+
+    vector = [0.0] * dim
+    for word in re.findall(r"\w+", text.lower()):
+        if word in _STOPWORDS:
+            continue
+        canonical = _CANONICAL.get(word, word)
+        vector[int(hashlib.md5(canonical.encode()).hexdigest(), 16) % dim] += 1.0
+    norm = math.sqrt(sum(v * v for v in vector))
+    return [v / norm for v in vector] if norm else vector
+
+
 def _sse(obj: Any) -> bytes:
     return b"data: " + (obj if isinstance(obj, bytes) else json.dumps(obj).encode()) + b"\n\n"
 
@@ -123,6 +151,9 @@ class FakeLLM:
         self.api_key: str | None = None
         self.models_status = 200
         self.always: Step | None = None
+        self.embed_requests: list[Received] = []
+        self.embed_steps: list[Status] = []
+        self.embed_dim = 256
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
         self.port = 0
@@ -191,6 +222,26 @@ class FakeLLM:
                 body_out = step.body if step.body is not None else {"error": {"message": f"status {step.code}"}}
                 return JSONResponse(body_out, status_code=step.code, headers=step.headers)
             return StreamingResponse(self._stream(step), media_type="text/event-stream")
+
+        @app.post("/v1/embeddings")
+        async def embeddings(request: Request) -> Any:
+            body = await request.json()
+            self.embed_requests.append(Received(body, {k.lower(): v for k, v in request.headers.items()}))
+            if not self._authorised(request):
+                return JSONResponse({"error": {"message": "Incorrect API key provided"}}, status_code=401)
+            if self.embed_steps:
+                step = self.embed_steps.pop(0)
+                body_out = step.body if step.body is not None else {"error": {"message": f"status {step.code}"}}
+                return JSONResponse(body_out, status_code=step.code, headers=step.headers)
+            inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
+            tokens = sum(len(str(t).split()) for t in inputs)
+            return JSONResponse(
+                {
+                    "object": "list", "model": body.get("model"),
+                    "data": [{"object": "embedding", "index": i, "embedding": fake_embedding(str(t), self.embed_dim)} for i, t in enumerate(inputs)],
+                    "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
+                }
+            )
 
         return app
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -69,6 +70,7 @@ class ModelIn(BaseModel):
     model_id: str
     context_window: int | None = None
     thinking_control: str | None = None
+    kind: str | None = None
     price_in: float | None = None
     price_out: float | None = None
     streaming: bool | None = None
@@ -210,6 +212,15 @@ async def test_model(provider_id: int, model_id: str, _: AdminDep, services: Ser
     """Send a minimal tool-calling request; only models that pass can join a route."""
     try:
         return await services.providers.test_model(provider_id, model_id)
+    except ProviderError as exc:
+        raise _unprocessable(exc) from None
+
+
+@router.post("/api/providers/{provider_id}/models/{model_id:path}/embedding-test")
+async def test_embedding_model(provider_id: int, model_id: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Embed sample sentences; the model becomes an embedding model and the result is recorded."""
+    try:
+        return await asyncio.to_thread(services.providers.test_embedding_model, provider_id, model_id)
     except ProviderError as exc:
         raise _unprocessable(exc) from None
 

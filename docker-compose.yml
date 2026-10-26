@@ -33,7 +33,7 @@ services:
       - /tmp:size=64m,mode=1777
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 512m
+    mem_limit: ${AIFRED_MEM_LIMIT:-1g}   # the knowledge base keeps vectors in memory; see docs/deploy.md
     pids_limit: 256                  # bounds a fork bomb started from the terminal tool
     extra_hosts:
       - "host.docker.internal:host-gateway"   # reach Ollama/vLLM on the Docker host

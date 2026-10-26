@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,7 +15,10 @@ from aifred import __version__
 from aifred.auth import AuthService
 from aifred.agent import Agent
 from aifred.config import RuntimeConfig, Settings
+from aifred.gateways.telegram import TelegramGateway
+from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
+from aifred.rag import RagService, RagWorker
 from aifred.skills import SkillStore
 from aifred.tools.registry import ToolRegistry
 from aifred.tools.web import WebTools
@@ -120,6 +124,10 @@ class Services:
         web: Web fetch and search implementation.
         tools: Tool registry.
         agent: The agent core.
+        rag: The local knowledge base.
+        rag_worker: Background indexer, created by the server process only.
+        mcp: MCP server definitions.
+        mcp_manager: Connections to MCP servers (started by the server and the CLI).
     """
 
     settings: Settings
@@ -134,9 +142,27 @@ class Services:
     web: WebTools
     tools: ToolRegistry
     agent: Agent = field(init=False)
+    rag: RagService = field(init=False)
+    rag_worker: RagWorker | None = field(init=False, default=None)
+    mcp: McpService = field(init=False)
+    mcp_manager: McpManager = field(init=False)
 
     def __post_init__(self) -> None:
         self.agent = Agent(self)
+        self.mcp = McpService(self.store, self.vault, self.config)
+        self.mcp_manager = McpManager(self.mcp, self.store)
+        self.tools.add_source(self.mcp_manager.tools)
+        self.config.subscribe(self._mcp_settings_changed)
+        self.rag = RagService(self.store, self.config, self.providers, self.llm, self.web, self.settings.data_dir)
+
+    def _mcp_settings_changed(self, changed: set[str]) -> None:
+        if changed & {"MCP_CONNECT_TIMEOUT", "MCP_CALL_TIMEOUT", "MCP_MAX_TOOLS_PER_SERVER"}:
+            self.mcp_manager.reload()
+
+    def start_mcp(self) -> None:
+        """Import ``mcp.json`` on first start and connect to the servers in the background."""
+        self.mcp.import_file(self.settings.data_dir / "mcp.json")
+        self.mcp_manager.start()
 
     @classmethod
     def open(cls, settings: Settings) -> Services:
@@ -167,7 +193,7 @@ class Services:
         memory = Memory(settings.data_dir)
         return cls(
             settings, store, vault, config, AuthService(store), providers,
-            LLMRouter(store, vault, config, providers), memory, SkillStore(settings.data_dir, memory), WebTools(), registry,
+            LLMRouter(store, vault, config, providers), memory, SkillStore(settings.data_dir, memory), WebTools(), registry.fork(),
         )
 
     def bootstrap(self) -> None:
@@ -181,6 +207,7 @@ class Services:
 
     def close(self) -> None:
         """Release resources."""
+        self.mcp_manager.stop()
         self.store.close()
 
 
@@ -190,7 +217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_llm
+    from aifred.gateways import api, api_chat, api_llm, api_mcp, api_openai, api_rag
 
     services = Services.open(settings or Settings())
     try:
@@ -199,18 +226,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         services.close()
         raise
 
+    def sync_rag_worker(changed: set[str] | None = None) -> None:
+        """Run the knowledge-base indexer exactly while ``RAG_ENABLED`` is on (it follows live changes)."""
+        if changed is not None and "RAG_ENABLED" not in changed:
+            return
+        if services.config.get("RAG_ENABLED"):
+            if services.rag_worker is None:
+                services.rag_worker = RagWorker(services.rag)
+            services.rag_worker.start()
+        elif services.rag_worker is not None:
+            services.rag_worker.stop()
+
+    telegram = TelegramGateway(services)
+    app_loop: list[asyncio.AbstractEventLoop] = []
+
+    def sync_telegram(changed: set[str] | None = None) -> None:
+        """Restart the Telegram gateway when its token, allowlist or API base change."""
+        if changed is not None and not changed & {"TELEGRAM_TOKEN", "TELEGRAM_ALLOWED_IDS", "TELEGRAM_API_BASE"}:
+            return
+        if app_loop:  # settings can change from a worker thread
+            asyncio.run_coroutine_threadsafe(telegram.restart(), app_loop[0])
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logger.info("AIFRED %s started, data in %s", __version__, services.settings.data_dir)
+        app_loop.append(asyncio.get_running_loop())
+        services.config.subscribe(sync_rag_worker)
+        services.config.subscribe(sync_telegram)
+        sync_rag_worker()
+        services.start_mcp()
+        await telegram.start()
         try:
             yield
         finally:
+            await telegram.stop()
+            if services.rag_worker is not None:
+                services.rag_worker.stop()
             services.close()
 
     app = FastAPI(
         title="AIFRED", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
     app.state.services = services
+    app.state.telegram = telegram
     app.include_router(api.router)
     app.include_router(api_llm.router)
+    app.include_router(api_rag.router)
+    app.include_router(api_mcp.router)
+    app.include_router(api_chat.router)
+    app.include_router(api_openai.router)
+    app.add_exception_handler(api_openai.OpenAIError, api_openai.openai_error_response)
     return app

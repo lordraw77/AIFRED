@@ -274,6 +274,11 @@ class LLMRouter:
                 return end, "monthly token budget reached"
         return None
 
+    def budget_block(self, provider: Provider) -> str | None:
+        """Why the provider may not be used now because of its token budget, or ``None``."""
+        block = self._budget_block(provider, self._clock())
+        return block[1] if block else None
+
     def _status(self, entry: Entry, now: float, *, ignore_cooldown: bool = False) -> _Status:
         """Compute whether an entry can be tried now, and with which keys."""
         if not entry.provider.enabled:
@@ -610,6 +615,8 @@ class LLMRouter:
             model = self._store.model_get(provider.id, model_id)
             if model is None:
                 raise ProviderError(f"entry {i}: {provider.slug}/{model_id} is not in the provider's model list")
+            if model["kind"] != "chat":
+                raise ProviderError(f"entry {i}: {provider.slug}/{model_id} is an embedding model; routes carry chat models")
             if not model["test_ok"]:
                 raise ProviderError(
                     f"entry {i}: {provider.slug}/{model_id} has not passed the tool-calling test; run Test on the model first"

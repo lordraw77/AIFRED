@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 if TYPE_CHECKING:
     from aifred.app import Services
@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 SOURCE_TO_GATEWAY = {"cli": "CLI", "telegram": "TELEGRAM", "api": "API", "web": "WEB"}
 RESTRICTED_TOOLSETS = frozenset({"search", "skills", "web"})
 """Toolsets an open (unauthenticated) gateway may use, further limited by each tool's ``restricted_ok``."""
+
+
+class RawArgs(BaseModel):
+    """Arguments of a tool whose schema comes from elsewhere (MCP): any object is accepted and the server validates."""
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ToolError(Exception):
@@ -70,6 +76,7 @@ class Tool:
         fn: Implementation, run in a worker thread.
         restricted_ok: Whether open gateways may use it.
         available: Extra condition (for example a configured URL).
+        raw_schema: JSON schema sent as is, for tools defined by an MCP server (``args`` is then :class:`RawArgs`).
     """
 
     name: str
@@ -79,9 +86,12 @@ class Tool:
     fn: Callable[[ToolContext, Any], str]
     restricted_ok: bool = False
     available: Callable[[ToolContext], bool] = field(default=lambda ctx: True)
+    raw_schema: dict[str, Any] | None = None
 
     def schema(self) -> dict[str, Any]:
         """OpenAI function-tool definition."""
+        if self.raw_schema is not None:
+            return {"type": "function", "function": {"name": self.name, "description": self.description, "parameters": self.raw_schema}}
         parameters = _clean_schema(self.args.model_json_schema())
         parameters.setdefault("type", "object")
         parameters["additionalProperties"] = False
@@ -107,6 +117,17 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        self._sources: list[Callable[[], list[Tool]]] = []
+
+    def fork(self) -> ToolRegistry:
+        """A registry with the same static tools and no dynamic sources (one per process, so sources never leak between them)."""
+        other = ToolRegistry()
+        other._tools = dict(self._tools)
+        return other
+
+    def add_source(self, source: Callable[[], list[Tool]]) -> None:
+        """Add a provider of dynamic tools (the MCP manager); it is asked on every request, so it must be cheap."""
+        self._sources.append(source)
 
     def register(self, tool: Tool) -> Tool:
         """Add a tool (names are unique)."""
@@ -128,8 +149,13 @@ class ToolRegistry:
         return decorator
 
     def all(self) -> list[Tool]:
-        """Every registered tool."""
-        return list(self._tools.values())
+        """Every registered tool, dynamic ones included."""
+        return [*self._tools.values(), *(t for source in self._sources for t in source())]
+
+    @staticmethod
+    def toolset_enabled(toolset: str, enabled: set[str]) -> bool:
+        """Whether a toolset is on; ``mcp`` switches on every ``mcp:<server>``."""
+        return toolset in enabled or (toolset.startswith("mcp:") and "mcp" in enabled)
 
     @staticmethod
     def enabled_toolsets(services: Services, source: str) -> set[str]:
@@ -148,8 +174,8 @@ class ToolRegistry:
         """Tools exposed to the model in this context; a disabled toolset is never exposed."""
         enabled = self.enabled_toolsets(ctx.services, ctx.source)
         out = []
-        for tool in self._tools.values():
-            if tool.toolset not in enabled:
+        for tool in self.all():
+            if not self.toolset_enabled(tool.toolset, enabled):
                 continue
             if ctx.restricted and not (tool.restricted_ok and tool.toolset in RESTRICTED_TOOLSETS):
                 continue

@@ -20,8 +20,15 @@ _PROVIDER_FIELDS = (
     "budget_tokens_daily", "budget_tokens_monthly",
 )
 _MODEL_FIELDS = (
-    "context_window", "tools", "streaming", "vision", "thinking_control", "price_in", "price_out",
+    "context_window", "tools", "streaming", "vision", "thinking_control", "price_in", "price_out", "kind",
 )
+_EMBEDDING_NAME_HINTS = ("embed", "bge-", "e5-", "gte-", "minilm", "mpnet", "nomic-bert")
+
+
+def guess_kind(model_id: str) -> str:
+    """Guess ``embedding`` or ``chat`` from a model id (only a default; the admin can change it)."""
+    lowered = model_id.lower()
+    return "embedding" if any(hint in lowered for hint in _EMBEDDING_NAME_HINTS) else "chat"
 
 
 def _decode(row: dict[str, Any]) -> dict[str, Any]:
@@ -169,10 +176,10 @@ class LLMStoreMixin:
         with self._tx() as c:
             for m in listed:
                 c.execute(
-                    "INSERT INTO models (provider_id, model_id, context_window) VALUES (?, ?, ?) "
+                    "INSERT INTO models (provider_id, model_id, context_window, kind) VALUES (?, ?, ?, ?) "
                     "ON CONFLICT(provider_id, model_id) DO UPDATE SET available = 1, "
                     "context_window = COALESCE(models.context_window, excluded.context_window)",
-                    (provider_id, m["model_id"], m.get("context_window")),
+                    (provider_id, m["model_id"], m.get("context_window"), guess_kind(m["model_id"])),
                 )
             for row in c.execute("SELECT model_id FROM models WHERE provider_id = ? AND manual = 0", (provider_id,)).fetchall():
                 if row[0] not in ids:
@@ -230,6 +237,15 @@ class LLMStoreMixin:
                 "UPDATE models SET test_ok = ?, test_at = ?, test_error = ?, tools = ? "
                 "WHERE provider_id = ? AND model_id = ?",
                 (int(ok), time.time(), error[:500], int(ok), provider_id, model_id),
+            )
+
+    def model_set_embedding_test(self, provider_id: int, model_id: str, ok: bool, dim: int | None, error: str = "") -> None:
+        """Record the result of an embedding test (the model becomes kind ``embedding``)."""
+        with self._tx() as c:
+            c.execute(
+                "UPDATE models SET kind = 'embedding', test_ok = ?, test_at = ?, test_error = ?, dim = ? "
+                "WHERE provider_id = ? AND model_id = ?",
+                (int(ok), time.time(), error[:500], dim if ok else None, provider_id, model_id),
             )
 
     # Routes

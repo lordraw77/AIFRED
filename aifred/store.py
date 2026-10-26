@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from aifred.store_llm import LLMStoreMixin
+from aifred.store_mcp import McpStoreMixin
+from aifred.store_rag import RagStoreMixin
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +237,91 @@ _MIGRATIONS: list[str] = [
     CREATE INDEX llm_usage_ts ON llm_usage(ts);
     CREATE INDEX llm_usage_provider ON llm_usage(provider_id, ts);
     """,
+    # 3: embedding models and the local knowledge base (RAG)
+    """
+    ALTER TABLE models ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'embedding'));
+    ALTER TABLE models ADD COLUMN dim INTEGER;
+
+    CREATE TABLE rag_collections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        embed_provider TEXT,
+        embed_model TEXT,
+        generation INTEGER NOT NULL DEFAULT 0,
+        created REAL NOT NULL
+    );
+
+    CREATE TABLE rag_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        collection_id INTEGER NOT NULL REFERENCES rag_collections(id) ON DELETE CASCADE,
+        source TEXT NOT NULL,
+        origin TEXT NOT NULL DEFAULT 'file' CHECK (origin IN ('file', 'upload', 'url')),
+        kind TEXT NOT NULL DEFAULT 'text',
+        title TEXT NOT NULL DEFAULT '',
+        sha256 TEXT NOT NULL DEFAULT '',
+        size INTEGER NOT NULL DEFAULT 0,
+        chunks INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'indexing', 'ready', 'waiting', 'partial', 'error')),
+        error TEXT NOT NULL DEFAULT '',
+        flagged INTEGER NOT NULL DEFAULT 0,
+        embed_tag TEXT,
+        dim INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        retry_at REAL,
+        created REAL NOT NULL,
+        updated REAL NOT NULL,
+        UNIQUE (collection_id, source)
+    );
+    CREATE INDEX rag_documents_status ON rag_documents(status, retry_at);
+
+    CREATE TABLE rag_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
+        ord INTEGER NOT NULL,
+        heading TEXT NOT NULL DEFAULT '',
+        page INTEGER,
+        vision INTEGER NOT NULL DEFAULT 0,
+        text TEXT NOT NULL,
+        text_sha TEXT NOT NULL,
+        embedding BLOB
+    );
+    CREATE INDEX rag_chunks_doc ON rag_chunks(document_id, ord);
+
+    CREATE VIRTUAL TABLE rag_chunks_fts USING fts5(
+        text, heading, content='rag_chunks', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER rag_chunks_ai AFTER INSERT ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rowid, text, heading) VALUES (new.id, new.text, new.heading);
+    END;
+    CREATE TRIGGER rag_chunks_ad AFTER DELETE ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, text, heading) VALUES ('delete', old.id, old.text, old.heading);
+    END;
+    CREATE TRIGGER rag_chunks_au AFTER UPDATE OF text, heading ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, text, heading) VALUES ('delete', old.id, old.text, old.heading);
+        INSERT INTO rag_chunks_fts(rowid, text, heading) VALUES (new.id, new.text, new.heading);
+    END;
+    """,
+    # 4: MCP servers (header values live in the vault)
+    """
+    CREATE TABLE mcp_servers (
+        name TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        header_names TEXT NOT NULL DEFAULT '[]',
+        verify_tls TEXT NOT NULL DEFAULT 'true',
+        timeout REAL,
+        connect_timeout REAL,
+        protocol_version TEXT NOT NULL DEFAULT 'auto',
+        include TEXT NOT NULL DEFAULT '[]',
+        exclude TEXT NOT NULL DEFAULT '[]',
+        max_tools INTEGER,
+        created REAL NOT NULL,
+        updated REAL NOT NULL
+    );
+    """,
 ]
 
 
@@ -245,7 +332,7 @@ def _like_prefix(prefix: str | None) -> str:
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-class Store(LLMStoreMixin):
+class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin):
     """Thread-safe access to the AIFRED database.
 
     Args:

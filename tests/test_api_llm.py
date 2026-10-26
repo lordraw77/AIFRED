@@ -197,3 +197,35 @@ def test_write_endpoints_need_csrf(client: TestClient, fake_llm: Callable[[], Fa
     login(client)  # cookie only, no CSRF header
     resp = client.post("/api/providers", json={"slug": "x", "type": "local", "base_url": fake_llm().url})
     assert resp.status_code == 403
+
+
+def test_embedding_model_test_marks_the_model_and_keeps_it_out_of_chat_routes(admin: TestClient, fake_llm: Callable[[], FakeLLM]) -> None:
+    fake = fake_llm()
+    fake.models = [{"id": "nomic-embed-text"}, {"id": "chat-model"}]
+    p = new_provider(admin, fake)
+    models = {m["model_id"]: m for m in admin.post(f"/api/providers/{p['id']}/models/refresh").json()}
+    assert models["nomic-embed-text"]["kind"] == "embedding" and models["chat-model"]["kind"] == "chat"  # a guess from the name
+
+    result = admin.post(f"/api/providers/{p['id']}/models/chat-model/embedding-test").json()
+    assert result == {"model_id": "chat-model", "ok": True, "dim": 256, "error": "", "latency_ms": result["latency_ms"]}
+    model = {m["model_id"]: m for m in admin.get(f"/api/providers/{p['id']}/models").json()}["chat-model"]
+    assert model["kind"] == "embedding" and model["dim"] == 256 and model["test_ok"] is True  # testing it as an embedder settles the kind
+
+    refused = admin.put("/api/routes/default", json={"entries": [{"provider": "lab", "model": "chat-model"}]})
+    assert refused.status_code == 422 and "embedding model" in refused.json()["detail"]
+    assert admin.put(f"/api/providers/{p['id']}/models", json=[{"model_id": "chat-model", "kind": "chat"}]).json()[0]["kind"] == "chat"
+    assert admin.put(f"/api/providers/{p['id']}/models", json=[{"model_id": "chat-model", "kind": "robot"}]).status_code == 422
+
+
+def test_embedding_test_reports_failures(admin: TestClient, fake_llm: Callable[[], FakeLLM]) -> None:
+    from tests.fake_llm import Status
+
+    fake = fake_llm()
+    p = new_provider(admin, fake)
+    fake.embed_steps.append(Status(401))
+    result = admin.post(f"/api/providers/{p['id']}/models/embed-1/embedding-test").json()
+    assert result["ok"] is False and result["dim"] is None and "401" in result["error"]
+    fake.embed_steps.append(Status(200, {"data": [{"index": 0, "embedding": [1.0, 0.0]}, {"index": 1, "embedding": [1.0, 0.0]}, {"index": 2, "embedding": [1.0, 0.0]}]}))
+    flat = admin.post(f"/api/providers/{p['id']}/models/embed-1/embedding-test").json()
+    assert flat["ok"] is False and "does not separate" in flat["error"]
+    assert admin.post(f"/api/providers/{p['id']}/models/bad id/embedding-test").status_code == 422
