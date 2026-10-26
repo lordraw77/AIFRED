@@ -1008,3 +1008,11 @@ What the implementation settled where section 9.4 left room, or changed:
 - Its only tools are `memory` and `skill_save`, enabled for the review whatever `TOOLSETS` says; its writes use the guarded path of section 8.1. Journal entries: `review/run` plus the memory or skill entries it caused.
 - `/refine` reviews the current conversation now (even with `REVIEW_ENABLED` off). `/journey` lists the latest journal entries and `/journey delete <id>` undoes a memory or skill change. The agent says what it saved in chat unless `NOTIFICATIONS` is `off`; the review's own result is shown at the start of the next turn.
 
+## 22. Implementation notes: instructions (phase 8)
+
+- Table `instructions(scope, text, enabled, updated)`; scopes `mcp:<name>`, `toolset:<name>`, `tool:<tool name>`; text up to 2,000 characters; every change journaled with the previous text (undo from Journey).
+- The Capabilities section lists the MCP servers and the documented tool groups enabled for the gateway; the open Telegram bot gets none. Undocumented servers fall back to the text the server gave about itself, then to their tool names. Over `INSTRUCTIONS_BUDGET`: first sentences, then names only under "more (use tool_help)".
+- `tool_help(name)` accepts a server, a group or a tool the caller can see; it is on whenever there is something to explain and never offered to restricted callers.
+- `PUT /api/mcp/servers/{name}` takes `instruction` and refuses a new server without one. API: `GET /api/instructions`, `GET|PUT|DELETE /api/instructions/{scope}`, `POST /api/instructions/suggest` (a draft, optionally from an unsaved server), `POST /api/instructions/reload`. Chat: `/instructions [reload|<name>]`, `/mcp add <name> <url> <what it is for>`.
+- Review proposals use the `instruction_suggest` tool, available only inside the review; they always wait in `pending_writes` and are screened twice.
+
