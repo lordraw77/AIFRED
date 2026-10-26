@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from aifred.memory import MemoryError_
 from aifred.scanner import scan
-from aifred.skills import SkillError
+from aifred.skills import Skill, SkillError
 
 if TYPE_CHECKING:
     from aifred.app import Services
@@ -127,6 +127,47 @@ def reject_pending(services: Services, write_id: int) -> None:
     _mark_journal(services, write_id, "rejected")
 
 
+def undo_entry(services: Services, entry_id: int) -> str:
+    """Revert an applied memory or skill change using the data its journal entry kept.
+
+    Raises:
+        WriteError: If the entry cannot be undone (unknown, not applied, or nothing was kept to undo it).
+    """
+    entry = next((e for e in services.store.journal_list(limit=1000) if e["id"] == entry_id), None)
+    if entry is None:
+        raise WriteError(f"no journal entry #{entry_id}")
+    if entry["status"] != "applied":
+        raise WriteError(f"#{entry_id} is {entry['status']}, only applied changes can be undone")
+    data, kind, action = entry["data"] or {}, entry["kind"], entry["action"]
+    try:
+        if kind == "memory":
+            target = data.get("target", "memory")
+            if action == "add":
+                if not services.memory.remove_exact(target, data["entry"]):
+                    raise WriteError("that memory entry is no longer there")
+            elif action == "replace":
+                services.memory.replace(target, data["entry"], data["old"])
+            elif action == "remove":
+                services.memory.add(target, data["old"])
+            else:
+                raise WriteError(f"cannot undo a memory {action}")
+        elif kind == "skill":
+            previous = data.get("previous")
+            name = data["name"]
+            if action in ("create", "update"):
+                services.skills.restore(name, None if previous is None else Skill(name, previous["description"], previous["body"]))
+            elif action == "delete" and previous:
+                services.skills.save(name, previous["description"], previous["body"])
+            else:
+                raise WriteError(f"cannot undo a skill {action}")
+        else:
+            raise WriteError(f"cannot undo a {kind} entry")
+    except (MemoryError_, SkillError, KeyError) as exc:
+        raise WriteError(f"cannot undo it: {exc}") from None
+    services.store.journal_set_status(entry_id, "undone")
+    return f"Undone: {entry['summary'][:100]}"
+
+
 def _mark_journal(services: Services, write_id: int, status: str) -> None:
     for entry in services.store.journal_list(limit=200):
         if entry["status"] == "pending" and (entry["data"] or {}).get("pending_id") == write_id:
@@ -144,4 +185,4 @@ def describe_pending(row: dict[str, Any]) -> str:
     return f"#{row['id']} {what}"
 
 
-__all__ = ["WriteError", "apply_memory", "apply_pending", "apply_skill", "approval_required", "describe_pending", "queue_write", "reject_pending", "screen"]
+__all__ = ["WriteError", "apply_memory", "apply_pending", "apply_skill", "approval_required", "describe_pending", "queue_write", "reject_pending", "screen", "undo_entry"]

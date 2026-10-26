@@ -118,6 +118,8 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
         self._sources: list[Callable[[], list[Tool]]] = []
+        self.calls: dict[str, int] = {}
+        """Calls per tool since the process started (shown on the Tools page)."""
 
     def fork(self) -> ToolRegistry:
         """A registry with the same static tools and no dynamic sources (one per process, so sources never leak between them)."""
@@ -188,19 +190,24 @@ class ToolRegistry:
         """Function definitions for the request body (empty list when no tool is enabled)."""
         return [t.schema() for t in self.for_context(ctx)]
 
-    async def execute(self, ctx: ToolContext, name: str, raw_arguments: str) -> str:
+    async def execute(self, ctx: ToolContext, name: str, raw_arguments: str, *, allow: frozenset[str] | None = None) -> str:
         """Run a tool call and return its output (never raises).
 
         Args:
             ctx: Call context.
             name: Tool name requested by the model.
             raw_arguments: JSON text of the arguments.
+            allow: Exactly these tools may run, whatever toolsets are enabled (the background review).
         """
         limit = int(ctx.services.config.get("TOOL_OUTPUT_LIMIT"))
-        tools = {t.name: t for t in self.for_context(ctx)}
+        if allow is not None:
+            tools = {t.name: t for t in self.all() if t.name in allow and t.available(ctx)}
+        else:
+            tools = {t.name: t for t in self.for_context(ctx)}
         tool = tools.get(name)
         if tool is None:
             return f"Error: unknown tool {name!r}"
+        self.calls[name] = self.calls.get(name, 0) + 1
         try:
             data = json.loads(raw_arguments) if raw_arguments.strip() else {}
         except json.JSONDecodeError as exc:

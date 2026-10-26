@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 
 from aifred.rag import RagError
 from aifred.router import RouteError
-from aifred.writes import WriteError, apply_pending, describe_pending, reject_pending
+from aifred.writes import undo_entry, WriteError, apply_pending, describe_pending, reject_pending
 
 if TYPE_CHECKING:
     from aifred.app import Services
@@ -89,7 +89,7 @@ class Commands:
         self._table: dict[str, Callable[[str, Context], Awaitable[str | Reply]]] = {
             "start": self._start, "help": self._help, "new": self._new, "sessions": self._sessions, "think": self._think,
             "model": self._model, "kb": self._kb, "pending": self._pending, "approve": self._approve, "reject": self._reject,
-            "mcp": self._mcp, "quit": self._quit,
+            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "quit": self._quit,
         }
 
     @staticmethod
@@ -125,7 +125,8 @@ class Commands:
             "start": "greeting", "help": "this list", "new": "start a new conversation",
             "sessions": "recent conversations", "think": "[on|off|auto] reasoning for this conversation",
             "model": "[route|provider/model|auto] show or choose the model route", "kb": "[scan|search <query>] the knowledge base",
-            "mcp": "[reload] MCP servers and their state", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
+            "mcp": "[reload] MCP servers and their state", "refine": "review this conversation now and save what is worth keeping",
+            "journey": "[delete <id>] what I learned; undo an entry", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
             "quit": "leave the CLI",
         }
         return "Commands:\n" + "\n".join(f"/{n} - {info[n]}" for n in self.available(ctx))
@@ -230,6 +231,28 @@ class Commands:
             + (f" ({r['error']})" if r["error"] else "") + (" [TLS not verified]" if r["tls_unverified"] else "")
             for r in rows
         )
+
+    async def _refine(self, args: str, ctx: Context) -> str:
+        result = await self._s.review.run(ctx.session_id, force=True)
+        if result.acted and result.details:
+            return f"Review: {result.summary()}\n" + "\n".join(f"- {d}" for d in result.details)
+        return f"Review: {result.summary()}"
+
+    async def _journey(self, args: str, ctx: Context) -> str:
+        sub, _, rest = args.partition(" ")
+        if sub == "delete":
+            if not rest.strip().lstrip("#").isdigit():
+                return "Usage: /journey delete <id>"
+            try:
+                return await asyncio.to_thread(undo_entry, self._s, int(rest.strip().lstrip("#")))
+            except WriteError as exc:
+                return f"Error: {exc}"
+        if args:
+            return "Usage: /journey or /journey delete <id>"
+        rows = await asyncio.to_thread(self._s.store.journal_list, 15)
+        if not rows:
+            return "Nothing learned yet."
+        return "\n".join(f"#{r['id']} {time.strftime('%Y-%m-%d %H:%M', time.localtime(r['ts']))} {r['kind']}/{r['action']} [{r['status']}] {r['summary'][:100]}" for r in rows)
 
     async def _pending(self, args: str, ctx: Context) -> str:
         rows = await asyncio.to_thread(self._s.store.pending_list)

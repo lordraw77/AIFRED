@@ -27,6 +27,9 @@ aifred = "aifred.__main__:main"
 [tool.setuptools.packages.find]
 include = ["aifred*"]
 
+[tool.setuptools.package-data]
+aifred = ["web/static/**/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

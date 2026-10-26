@@ -8,7 +8,9 @@ the conversation.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import time
 import weakref
 from collections.abc import AsyncIterator, Callable
@@ -98,6 +100,25 @@ class NoticeEvent(Event):
 
     type: ClassVar[str] = "notice"
     text: str
+
+
+def save_notice(name: str, raw_arguments: str, output: str, verbose: bool) -> str:
+    """The line shown in chat after the agent saved something (``NOTIFICATIONS``)."""
+    try:
+        args = json.loads(raw_arguments)
+    except ValueError:
+        args = {}
+    what = "skill" if name == "skill_save" else "memory"
+    if output.startswith("Queued"):
+        number = re.search(r"#\d+", output)
+        text = f"A {what} change is waiting for your approval{f' ({number.group()})' if number else ''}."
+    else:
+        text = f"Saved to {what}."
+    if verbose:
+        detail = args.get("name") if name == "skill_save" else args.get("content") or args.get("match")
+        if detail:
+            text += f" {str(detail)[:200]}"
+    return text
 
 
 @dataclass
@@ -255,6 +276,8 @@ class Agent:
         s = self._s
         cfg = s.config
         ctx = ToolContext(s, session_id, source, restricted)
+        for note in s.review.take_notices(session_id):
+            yield NoticeEvent(note)
         await asyncio.to_thread(s.store.ensure_session, session_id, source, text.strip()[:TITLE_LENGTH])
         prompt = self._prompt(session_id, ctx)
         history = await asyncio.to_thread(s.store.history, session_id, int(cfg.get("HISTORY_LIMIT")))
@@ -311,6 +334,7 @@ class Agent:
                 s.store.add_message, session_id, "assistant", result.content or None, result.tool_calls or None
             )
             if not result.tool_calls:
+                s.review.after_turn(session_id, restricted)  # counts the turn; a review runs on its own thread when one is due
                 yield DoneEvent(result.content, usage, served_by)
                 return
             for call in result.tool_calls:
@@ -320,6 +344,8 @@ class Agent:
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
                 await asyncio.to_thread(s.store.add_message, session_id, "tool", output, None, call["id"])
                 yield ToolResultEvent(name, output[:UI_RESULT_LIMIT])
+                if name in ("memory", "skill_save") and not output.startswith("Error") and cfg.get("NOTIFICATIONS") != "off":
+                    yield NoticeEvent(save_notice(name, arguments, output, cfg.get("NOTIFICATIONS") == "verbose"))
 
         final = (
             f"I stopped after {limit} tool rounds without reaching a final answer. "

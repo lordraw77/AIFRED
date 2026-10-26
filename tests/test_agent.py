@@ -57,7 +57,7 @@ async def test_events_serialise(services: Services) -> None:
 async def test_tool_round_trip_is_stored_and_replayed(services: Services, llm_ready: FakeLLM) -> None:
     llm_ready.queue(ToolCall("memory", {"action": "add", "target": "user", "content": "Prefers tea"}), Text("Noted."))
     events = await run(services, "remember that I prefer tea")
-    assert types(events) == ["tool_call", "tool_result", "token", "token", "done"]
+    assert types(events) == ["tool_call", "tool_result", "notice", "token", "token", "done"]  # NOTIFICATIONS is on by default
     call, result = events[0], events[1]
     assert isinstance(call, ToolCallEvent) and call.name == "memory" and '"Prefers tea"' in call.arguments
     assert isinstance(result, ToolResultEvent) and result.content.startswith("Done. user memory now uses 11 of")

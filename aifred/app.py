@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from aifred import __version__
+from aifred import __version__, logbuffer, web
 from aifred.auth import AuthService
 from aifred.agent import Agent
 from aifred.config import RuntimeConfig, Settings
@@ -19,6 +19,7 @@ from aifred.gateways.telegram import TelegramGateway
 from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
+from aifred.review import ReviewService
 from aifred.skills import SkillStore
 from aifred.tools.registry import ToolRegistry
 from aifred.tools.web import WebTools
@@ -37,6 +38,7 @@ def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     if not root.handlers:
         logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logbuffer.install()
     root.setLevel(level)
     # httpx logs the full URL of every request at INFO, and web_fetch URLs can carry secrets in their query string
     for noisy in ("httpx", "httpcore"):
@@ -126,6 +128,7 @@ class Services:
         agent: The agent core.
         rag: The local knowledge base.
         rag_worker: Background indexer, created by the server process only.
+        review: Background self-improvement review.
         mcp: MCP server definitions.
         mcp_manager: Connections to MCP servers (started by the server and the CLI).
     """
@@ -144,10 +147,12 @@ class Services:
     agent: Agent = field(init=False)
     rag: RagService = field(init=False)
     rag_worker: RagWorker | None = field(init=False, default=None)
+    review: ReviewService = field(init=False)
     mcp: McpService = field(init=False)
     mcp_manager: McpManager = field(init=False)
 
     def __post_init__(self) -> None:
+        self.review = ReviewService(self)
         self.agent = Agent(self)
         self.mcp = McpService(self.store, self.vault, self.config)
         self.mcp_manager = McpManager(self.mcp, self.store)
@@ -207,6 +212,7 @@ class Services:
 
     def close(self) -> None:
         """Release resources."""
+        self.review.shutdown()
         self.mcp_manager.stop()
         self.store.close()
 
@@ -217,7 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_chat, api_llm, api_mcp, api_openai, api_rag
+    from aifred.gateways import api, api_chat, api_llm, api_data, api_mcp, api_openai, api_rag, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -273,7 +279,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_llm.router)
     app.include_router(api_rag.router)
     app.include_router(api_mcp.router)
+    app.include_router(api_system.router)
+    app.include_router(api_data.router)
     app.include_router(api_chat.router)
     app.include_router(api_openai.router)
     app.add_exception_handler(api_openai.OpenAIError, api_openai.openai_error_response)
+    web.mount(app)
     return app
