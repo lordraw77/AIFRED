@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
+from aifred.instructions import INTERNAL_TOOLSETS
 from aifred.logbuffer import BUFFER
 from aifred.memory import MemoryError_
 from aifred.skills import SkillError
@@ -141,6 +142,8 @@ def list_tools(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
     ctx = ToolContext(services, "dashboard", "web")
     toolsets: dict[str, list[dict[str, Any]]] = {}
     for tool in registry.all():
+        if tool.toolset in INTERNAL_TOOLSETS:
+            continue
         toolsets.setdefault(tool.toolset, []).append({
             "name": tool.name, "description": tool.description[:300], "available": bool(tool.available(ctx)),
             "restricted_ok": tool.restricted_ok, "calls": registry.calls.get(tool.name, 0),

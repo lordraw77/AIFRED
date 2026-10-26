@@ -5,6 +5,7 @@ const STATUS_KIND = { applied: "ok", pending: "warn", blocked: "err", rejected: 
 
 function describePending(row) {
   const p = row.payload;
+  if (row.kind === "instruction") return `instruction for ${p.scope}: ${p.text}${p.reason ? ` (why: ${p.reason})` : ""}`;
   if (row.kind === "memory") return `memory ${p.action} (${p.target || "memory"}): ${p.content || p.match || ""}`;
   return `skill ${p.name}: ${p.description || ""}`;
 }
@@ -28,7 +29,7 @@ export default {
           h("span", { class: "mono muted" }, new Date(e.ts * 1000).toLocaleString()), h("span", {}, badge(e.kind), " ", h("span", { class: "mono" }, e.action)),
           h("span", {}, e.summary, e.status === "blocked" && e.data && e.data.reasons ? h("div", { class: "hint" }, e.data.reasons) : null),
           h("span", { class: "row" }, badge(e.status, STATUS_KIND[e.status] || ""),
-            e.status === "applied" && ["memory", "skill"].includes(e.kind) && e.data ? dangerButton("Undo", async () => { if (await attempt(() => post(`/api/journal/${e.id}/undo`), "Undone")) draw(); }) : null)))
+            e.status === "applied" && ["memory", "skill", "instruction"].includes(e.kind) && e.data ? dangerButton("Undo", async () => { if (await attempt(() => post(`/api/journal/${e.id}/undo`), "Undone")) draw(); }) : null)))
           : empty("Nothing yet. Memory saves, skill saves and settings changes are listed here.")));
     }
     await draw();

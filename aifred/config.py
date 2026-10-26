@@ -155,7 +155,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("MCP_MAX_TOOLS_PER_SERVER", "int", 40, "mcp", "Cap on tools exposed per MCP server", minimum=1, maximum=500),
         SettingSpec(
             "INSTRUCTIONS_BUDGET", "int", 3000, "agent", "Maximum characters of the Capabilities prompt section",
-            minimum=500, maximum=50000,
+            minimum=100, maximum=50000,
         ),
         SettingSpec("RAG_ENABLED", "bool", False, "knowledge", "Turn the local knowledge base on (ingestion, API, tools)"),
         SettingSpec("RAG_EMBED_PROVIDER", "str", None, "knowledge", "Provider slug of the embedding model (empty: keyword search only)", nullable=True),

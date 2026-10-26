@@ -123,6 +123,7 @@ def test_tools_overview(api: TestClient) -> None:
     assert by_name["web"]["enabled"]["TELEGRAM"] is True and by_name["skills"]["enabled"]["CLI"] is False
     assert {t["name"] for t in by_name["memory"]["tools"]} == {"memory"} and by_name["search"]["tools"][0]["restricted_ok"] is True
     assert all(t["calls"] == 0 for t in by_name["memory"]["tools"])
+    assert "help" not in by_name and "review" not in by_name  # internal toolsets are not the admin's to switch
 
 
 @pytest.mark.anyio

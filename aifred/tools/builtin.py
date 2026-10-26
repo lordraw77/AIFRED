@@ -426,3 +426,52 @@ def terminal(ctx: ToolContext, args: TerminalArgs) -> str:
 
 
 __all__ = ["registry"]
+
+
+# tool_help
+
+
+class HelpArgs(BaseModel):
+    """Arguments of the tool_help tool."""
+
+    name: str = Field(description="An MCP server, tool group or tool name listed under Capabilities")
+
+
+@registry.tool(
+    "tool_help", "help",
+    "Read the full note about an MCP server, tool group or tool listed under Capabilities (what it is for, when to use it), with its tools.",
+    HelpArgs, available=lambda ctx: not ctx.restricted and ctx.services.instructions.has_content(ctx),
+)
+def tool_help(ctx: ToolContext, args: HelpArgs) -> str:
+    """Explain a capability in full."""
+    return ctx.services.instructions.help_text(ctx, args.name)
+
+
+# instruction_suggest (the background review only)
+
+
+class SuggestArgs(BaseModel):
+    """Arguments of the instruction_suggest tool."""
+
+    scope: str = Field(description="mcp:<server>, toolset:<name> or tool:<tool name>")
+    text: str = Field(description="The improved instruction: what it is for, when to use it, when not to")
+    reason: str = Field(description="What went wrong in the conversation that this would prevent")
+
+
+@registry.tool(
+    "instruction_suggest", "review",
+    "Propose a better instruction for an MCP server, tool group or tool when the assistant chose the wrong tool or struggled to find the right one. "
+    "The proposal waits for the admin's approval.",
+    SuggestArgs, available=lambda ctx: ctx.source == "review",
+)
+def instruction_suggest(ctx: ToolContext, args: SuggestArgs) -> str:
+    """Queue an instruction proposal (never applied directly)."""
+    services = ctx.services
+    try:
+        services.instructions.check(args.scope, args.text)
+    except Exception as exc:  # noqa: BLE001 - InstructionError, reported to the reviewer
+        raise ToolError(str(exc)) from None
+    _guard(lambda: screen(services, "instruction", "propose", args.text, args.scope, ctx.session_id))
+    wid = queue_write(services, "instruction", {"scope": args.scope, "text": args.text, "reason": args.reason[:300]}, ctx.session_id, "propose", f"{args.scope}: {args.text}")
+    return f"Queued for the user's approval as #{wid}; it is not applied."
+

@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 
 from aifred.rag import RagError
 from aifred.router import RouteError
+from aifred.instructions import InstructionError, first_sentence
+from aifred.mcp import McpConfigError
 from aifred.writes import undo_entry, WriteError, apply_pending, describe_pending, reject_pending
 
 if TYPE_CHECKING:
@@ -89,7 +91,7 @@ class Commands:
         self._table: dict[str, Callable[[str, Context], Awaitable[str | Reply]]] = {
             "start": self._start, "help": self._help, "new": self._new, "sessions": self._sessions, "think": self._think,
             "model": self._model, "kb": self._kb, "pending": self._pending, "approve": self._approve, "reject": self._reject,
-            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "quit": self._quit,
+            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "quit": self._quit,
         }
 
     @staticmethod
@@ -126,7 +128,8 @@ class Commands:
             "sessions": "recent conversations", "think": "[on|off|auto] reasoning for this conversation",
             "model": "[route|provider/model|auto] show or choose the model route", "kb": "[scan|search <query>] the knowledge base",
             "mcp": "[reload] MCP servers and their state", "refine": "review this conversation now and save what is worth keeping",
-            "journey": "[delete <id>] what I learned; undo an entry", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
+            "journey": "[delete <id>] what I learned; undo an entry",
+            "instructions": "[reload|<name>] what each tool group is for", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
             "quit": "leave the CLI",
         }
         return "Commands:\n" + "\n".join(f"/{n} - {info[n]}" for n in self.available(ctx))
@@ -221,8 +224,10 @@ class Commands:
         if args.lower() == "reload":
             await asyncio.to_thread(manager.reload)
             await asyncio.to_thread(manager.wait_ready, 5.0)
+        elif args.lower().startswith("add"):
+            return await self._mcp_add(args[3:].strip())
         elif args:
-            return "Usage: /mcp or /mcp reload"
+            return "Usage: /mcp, /mcp reload or /mcp add <name> <url> <what it is for>"
         rows = manager.status()
         if not rows:
             return "No MCP servers. Add them on the MCP page of the dashboard."
@@ -231,6 +236,47 @@ class Commands:
             + (f" ({r['error']})" if r["error"] else "") + (" [TLS not verified]" if r["tls_unverified"] else "")
             for r in rows
         )
+
+    async def _mcp_add(self, args: str) -> str:
+        parts = args.split(None, 2)
+        if len(parts) < 3:
+            return "Usage: /mcp add <name> <url> <what it is for>. Say what the server is for and when to use it; it is required."
+        name, url, text = parts[0], parts[1], parts[2].strip()
+        s = self._s
+        try:
+            s.instructions.check(f"mcp:{name}", text)
+            server, headers = s.mcp.preview(name, {"url": url})
+            if s.mcp.get(name):
+                return f"There is already a server called {name!r}; change it on the MCP page."
+            result = await asyncio.to_thread(s.mcp_manager.test, server, headers)
+            if not result["ok"]:
+                return f"Error: connection test failed: {result['error']}"
+            s.mcp.save(name, {"url": url})
+            s.instructions.set(f"mcp:{name}", text)
+        except (McpConfigError, InstructionError) as exc:
+            return f"Error: {exc}"
+        await asyncio.to_thread(s.mcp_manager.reload)
+        s.agent.reset_all_prompts()
+        return (f"Added {name}: protocol {result['protocol']}, {len(result['tools'])} tools. Enable it with mcp:{name} in TOOLSETS. "
+                "Headers for authentication can only be set on the dashboard.")
+
+    async def _instructions(self, args: str, ctx: Context) -> str:
+        s = self._s
+        if args.lower() == "reload":
+            s.agent.reset_all_prompts()
+            return "The instructions will be re-read at the next message."
+        overview = await asyncio.to_thread(s.instructions.overview)
+        groups = [*overview["servers"], *overview["toolsets"]]
+        if args:
+            wanted = args.strip().lower()
+            for g in groups:
+                if wanted in (f"{g['kind']}:{g['name']}".lower(), g["name"].lower()):
+                    text = g["text"] or g.get("server_text") or "(nothing written)"
+                    return f"{g['kind']}:{g['name']}{'' if g['enabled'] else ' [disabled]'}\n{text}\n" + "\n".join(f"- {t['name']}: {t['text'] or t['description'][:100]}" for t in g["tools"][:30])
+            return f"No server or tool group called {args!r}. Try /instructions."
+        lines = [f"{g['kind']}:{g['name']}: " + (first_sentence(g["text"]) if g["text"] else "(undocumented)" if g["kind"] == "mcp" else "(none)") for g in groups if g["text"] or g["kind"] == "mcp"]
+        lines.append(f"Capabilities section: {overview['used']:,} of {overview['budget']:,} characters.")
+        return "\n".join(lines) if len(lines) > 1 else "No instructions written yet. " + lines[0]
 
     async def _refine(self, args: str, ctx: Context) -> str:
         result = await self._s.review.run(ctx.session_id, force=True)

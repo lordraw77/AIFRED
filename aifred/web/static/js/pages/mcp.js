@@ -1,16 +1,19 @@
 // MCP: servers with state, detected protocol, tool count and latency; add, edit, enable, delete, test and reload (spec 9.2).
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, toast } from "../core.js";
+import { instructionEditor } from "../instr.js";
 
 const DOT = { connected: "ok", error: "err", disabled: "off", connecting: "warn" };
 
 export default {
   async render(root, ctx) {
     let editing = null;      // server name being edited, "" for a new one
+    let notes = {};          // server name -> its instruction record
     const body = h("div", {});
     root.append(body);
 
     async function draw() {
-      const servers = await get("/api/mcp/servers");
+      const [servers, overview] = await Promise.all([get("/api/mcp/servers"), get("/api/instructions")]);
+      notes = Object.fromEntries(overview.servers.map((x) => [x.name, x]));
       ctx.setCount(servers.length);
       clear(body);
       const head = panel("Servers", "mcp");
@@ -36,8 +39,19 @@ export default {
           dangerButton("Delete", async () => { if (await attempt(() => del(`/api/mcp/servers/${encodeURIComponent(s.name)}`), "Server deleted")) draw(); })),
         h("div", { class: "mono muted" }, s.url), h("div", { class: "mono" }, `${s.tools} tools exposed${s.latency_ms !== null && s.latency_ms !== undefined ? ` · ${s.latency_ms} ms` : ""} · call timeout ${s.timeout} s`),
         s.error && h("div", { class: "notice err" }, s.error),
+        instructionBlock(s),
         s.dropped.length ? h("div", { class: "notice warn" }, `Dropped tools: ${s.dropped.map((d) => `${d.tool} (${d.reason})`).join("; ")}`) : null,
         (s.include.length || s.exclude.length) ? h("div", { class: "hint" }, `${s.include.length ? `only: ${s.include.join(", ")}  ` : ""}${s.exclude.length ? `not: ${s.exclude.join(", ")}` : ""}`) : null, result);
+    }
+
+    function instructionBlock(s) {
+      const n = notes[s.name] || { text: "", enabled: true, undocumented: true };
+      const editor = h("div", { hidden: true }, instructionEditor({ scope: `mcp:${s.name}`, text: n.text, enabled: n.enabled, onChange: () => draw() }));
+      return h("div", { class: "stack" },
+        h("div", { class: "row" }, h("span", { class: "label" }, "What is this for?"), n.undocumented ? badge("undocumented", "warn") : null, !n.enabled && n.text ? badge("not used", "warn") : null,
+          button(editor.hidden ? "Edit" : "Close", () => { editor.hidden = !editor.hidden; }, { small: true, iconName: "edit" })),
+        n.text ? h("div", { class: "pre" }, n.text) : h("div", { class: "hint" }, n.server_text ? `The server describes itself: ${n.server_text.slice(0, 200)}` : "Nothing written. The agent only sees the tool names, so it may not know when to use them."),
+        editor);
     }
 
     function form(s) {
@@ -66,6 +80,16 @@ export default {
       const proto = h("select", {}, ["auto", "2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"].map((p) => h("option", { value: p }, p))); proto.value = s ? s.protocol_version : "auto";
       const enabled = h("input", { type: "checkbox" }); enabled.checked = s ? s.enabled : true;
       const skip = h("input", { type: "checkbox" });
+      const note = notes[s ? s.name : ""] || { text: "", enabled: true };
+      const draftServer = () => {
+        if (!name.value.trim() || !url.value.trim()) { toast("Fill in the name and the URL first: the draft is based on the tools the server offers", "err"); return null; }
+        const out = { name: name.value.trim(), url: url.value.trim(), verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true" };
+        const hs = {};
+        for (const r of headerRows) if (r.n.value.trim()) hs[r.n.value.trim()] = r.v.value || (r.stored ? null : "");
+        if (Object.keys(hs).length) out.headers = hs;
+        return out;
+      };
+      const editor = instructionEditor({ scope: `mcp:${s ? s.name : name.value.trim() || "new"}`, text: note.text, enabled: note.enabled, standalone: false, draftServer: s ? null : draftServer, rows: 5 });
       const list = (t) => t.split(",").map((x) => x.trim()).filter(Boolean);
       const submit = h("button", { class: "btn btn-primary", type: "submit" }, "Test and save");
       return h("form", { class: "item stack", onsubmit: async (e) => {
@@ -76,12 +100,16 @@ export default {
         const bodyOut = { url: url.value.trim(), enabled: enabled.checked, headers, verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true",
           timeout: timeout.value ? Number(timeout.value) : null, connect_timeout: connect.value ? Number(connect.value) : null, max_tools: maxTools.value ? Number(maxTools.value) : null,
           include: list(include.value), exclude: list(exclude.value), protocol_version: proto.value, skip_test: skip.checked };
+        const written = editor.read().text.trim();
+        if (isNew && !written) { toast("What is this for? is required: say when the agent should use this server", "err"); submit.disabled = false; return; }
+        if (written) bodyOut.instruction = written;
         const ok = await attempt(() => put(`/api/mcp/servers/${encodeURIComponent(name.value.trim())}`, bodyOut), "Server saved");
         submit.disabled = false;
         if (ok) { editing = null; setTimeout(draw, 300); }
       } },
         h("div", { class: "grid2" }, field("Name", name, "a-z, 0-9 and _; becomes the toolset mcp:<name>"), field("URL", url), field("TLS", verify), field("CA file", ca),
           field("Call timeout (s)", timeout), field("Connect timeout (s)", connect), field("Tool cap", maxTools), field("Protocol", proto), field("Only these tools", include), field("Never these tools", exclude)),
+        h("div", { class: "label" }, isNew ? "What is this for? (required)" : "What is this for?"), editor,
         h("div", { class: "label" }, "Headers (values are encrypted and never shown again)"), headersEl, h("div", { class: "row" }, button("Add header", () => addHeader(), { small: true, iconName: "plus" })),
         h("div", { class: "row" }, h("label", { class: "check" }, enabled, "Enabled"), h("label", { class: "check" }, skip, "Save without testing")),
         h("div", { class: "row" }, submit, button("Cancel", () => { editing = null; draw(); })));

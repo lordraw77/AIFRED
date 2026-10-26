@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from aifred.store_instructions import InstructionStoreMixin
 from aifred.store_llm import LLMStoreMixin
 from aifred.store_mcp import McpStoreMixin
 from aifred.store_rag import RagStoreMixin
@@ -322,6 +323,15 @@ _MIGRATIONS: list[str] = [
         updated REAL NOT NULL
     );
     """,
+    # 5: instructions (what an MCP server, toolset or tool is for)
+    """
+    CREATE TABLE instructions (
+        scope TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated REAL NOT NULL
+    );
+    """,
 ]
 
 
@@ -332,7 +342,7 @@ def _like_prefix(prefix: str | None) -> str:
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin):
+class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin):
     """Thread-safe access to the AIFRED database.
 
     Args:

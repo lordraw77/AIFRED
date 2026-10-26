@@ -166,17 +166,22 @@ class ToolRegistry:
         gateway = SOURCE_TO_GATEWAY.get(source)
         own = cfg.get(f"TOOLSETS_{gateway}") if gateway else None
         if own is not None:
-            return set(own)
+            return {*own, "help"}
         base = set(cfg.get("TOOLSETS"))
         if cfg.get("ENABLE_TERMINAL"):
             base.add("terminal")
-        return base
+        return {*base, "help"}  # tool_help is always on: it is how a shortened Capabilities section is read in full
 
-    def for_context(self, ctx: ToolContext) -> list[Tool]:
-        """Tools exposed to the model in this context; a disabled toolset is never exposed."""
+    def for_context(self, ctx: ToolContext, *, skip_help: bool = False) -> list[Tool]:
+        """Tools exposed to the model in this context; a disabled toolset is never exposed.
+
+        ``skip_help`` leaves out the ``help`` toolset, whose availability itself depends on this list.
+        """
         enabled = self.enabled_toolsets(ctx.services, ctx.source)
         out = []
         for tool in self.all():
+            if skip_help and tool.toolset == "help":
+                continue
             if not self.toolset_enabled(tool.toolset, enabled):
                 continue
             if ctx.restricted and not (tool.restricted_ok and tool.toolset in RESTRICTED_TOOLSETS):

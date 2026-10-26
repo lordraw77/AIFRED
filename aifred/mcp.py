@@ -270,6 +270,8 @@ class McpService:
         if not self._store.mcp_server_delete(name):
             raise McpConfigError(f"no MCP server named {name!r}")
         self._vault.delete(secret_name(name))
+        self._store.instruction_delete(f"mcp:{name}")
+        self._store.instruction_delete_prefix(f"tool:mcp__{name}__")
         self._store.journal_add("settings", "mcp_server", f"MCP server {name!r} deleted")
 
     def export(self) -> dict[str, Any]:
@@ -322,6 +324,9 @@ class McpService:
                 if isinstance(headers, dict):
                     entry = {**entry, "headers": {k: v for k, v in headers.items() if v}}
                 self.save(name, entry)
+                text = entry.get("instruction")
+                if isinstance(text, str) and text.strip():
+                    self._store.instruction_set(f"mcp:{name}", text.strip()[:2000])
                 imported.append(name)
             except McpConfigError as exc:
                 logger.error("Skipping MCP server %r from %s: %s", name, path, exc)
@@ -352,6 +357,7 @@ class ServerState:
     busy: bool = False
     stale: bool = False
     signature: dict[str, str] = field(default_factory=dict)
+    server_text: str = ""
 
 
 class McpManager:
@@ -504,6 +510,7 @@ class McpManager:
                 return
             state.client, state.status, state.error, state.backoff = client, "connected", "", RETRY_START
             state.version, state.latency_ms = client.version, int((self._clock() - started) * 1000)
+            state.server_text = client.instructions
             self._apply(state, listing.tools, listing.dropped, listing.ttl)
         logger.info("MCP server %s connected (protocol %s, %d tool(s))", server.name, client.version, len(state.tools))
 
@@ -561,6 +568,12 @@ class McpManager:
                     "tools": len(self._exposed(s)), "latency_ms": s.latency_ms, "dropped": [{"tool": n, "reason": r} for n, r in s.dropped],
                 })
             return out
+
+    def describe(self, name: str) -> tuple[str, list[McpTool]]:
+        """The server's own ``instructions`` text and the tools it exposes (empty when unknown)."""
+        with self._lock:
+            state = self._states.get(name)
+            return (state.server_text, self._exposed(state)) if state else ("", [])
 
     def _exposed(self, state: ServerState) -> list[McpTool]:
         """Tools after the include/exclude filters and the cap."""
@@ -630,8 +643,15 @@ class McpManager:
             client.close()
         return {
             "ok": True, "error": "", "protocol": client.version, "tools": [t.name for t in listing.tools], "server": client.server_name,
+            "instructions": client.instructions, "tool_info": [tool_info(t) for t in listing.tools],
             "latency_ms": int((time.monotonic() - started) * 1000), "dropped": [{"tool": n, "reason": r} for n, r in listing.dropped],
         }
+
+
+def tool_info(tool: McpTool) -> dict[str, Any]:
+    """A tool's name, description and parameter names: what an instruction draft may be based on (never outputs)."""
+    props = tool.schema.get("properties") if isinstance(tool.schema.get("properties"), dict) else {}
+    return {"name": tool.name, "description": tool.description, "params": list(props)[:20]}
 
 
 def _private_host(host: str) -> bool:

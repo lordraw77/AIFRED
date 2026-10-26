@@ -180,6 +180,10 @@ class Agent:
 
     # System prompt
 
+    def reset_all_prompts(self) -> None:
+        """Rebuild every cached system prompt at the next turn (``/instructions reload``)."""
+        self._prompts.clear()
+
     def reset_prompt(self, session_id: str) -> None:
         """Forget the frozen prompt so the next turn rebuilds it (``/new``, ``/instructions reload``)."""
         self._prompts.pop(session_id, None)
@@ -213,6 +217,9 @@ class Agent:
                 for c in collections[:15]:
                     detail = f": {c['description'][:120]}" if c["description"] else ""
                     lines.append(f"- {c['name']}{detail} ({c['documents']} documents)")
+        capabilities = s.instructions.capabilities(ctx)
+        if capabilities:
+            lines += ["", capabilities]
         lines += [
             "", "## Guidelines",
             "- Be concise. Never invent results: if you did not run or read something, say so.",

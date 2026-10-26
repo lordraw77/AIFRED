@@ -216,3 +216,6 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .row > input[type="text"], .row > input[type="url"], .row > input[type="password"], .row > input[type="number"], .row > select, .row > textarea { width: auto; flex: 1 1 180px; }
 .row > select { flex-basis: 160px; }
 .content > .row { margin-bottom: 16px; }
+.over { color: var(--warn); }
+.tool-row { display: grid; grid-template-columns: minmax(140px, 260px) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 4px 0; }
+@media (max-width: 800px) { .tool-row { grid-template-columns: minmax(0, 1fr); } }

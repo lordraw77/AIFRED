@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from aifred.instructions import InstructionError
 from aifred.memory import MemoryError_
 from aifred.scanner import scan
 from aifred.skills import Skill, SkillError
@@ -106,6 +107,13 @@ def apply_pending(services: Services, write_id: int) -> str:
     elif kind == "skill":
         screen(services, "skill", "save", f"{payload['description']}\n{payload['body']}", payload["name"], session_id)
         message = apply_skill(services, payload, session_id)
+    elif kind == "instruction":
+        screen(services, "instruction", "propose", payload["text"], payload["scope"], session_id)
+        try:
+            services.instructions.set(payload["scope"], payload["text"], session_id=session_id)
+        except InstructionError as exc:
+            raise WriteError(str(exc)) from None
+        message = f"Instruction for {payload['scope']} saved."
     else:
         raise WriteError(f"cannot apply a write of kind {kind!r}")
     services.store.pending_decide(write_id, "approved")
@@ -160,6 +168,8 @@ def undo_entry(services: Services, entry_id: int) -> str:
                 services.skills.save(name, previous["description"], previous["body"])
             else:
                 raise WriteError(f"cannot undo a skill {action}")
+        elif kind == "instruction":
+            services.instructions.restore(data["scope"], data.get("previous"), data.get("previous_enabled"))
         else:
             raise WriteError(f"cannot undo a {kind} entry")
     except (MemoryError_, SkillError, KeyError) as exc:
@@ -178,7 +188,9 @@ def _mark_journal(services: Services, write_id: int, status: str) -> None:
 def describe_pending(row: dict[str, Any]) -> str:
     """One line for ``/pending``."""
     p = row["payload"]
-    if row["kind"] == "memory":
+    if row["kind"] == "instruction":
+        what = f"instruction for {p.get('scope')}: {p.get('text', '')[:100]}" + (f" (why: {p['reason'][:80]})" if p.get("reason") else "")
+    elif row["kind"] == "memory":
         what = f"memory {p.get('action')} ({p.get('target', 'memory')}): {(p.get('content') or p.get('match') or '')[:100]}"
     else:
         what = f"skill {p.get('name')}: {p.get('description', '')[:100]}"

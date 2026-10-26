@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
+from aifred.instructions import InstructionError
 from aifred.mcp import McpConfigError
 from aifred.vault import VaultError
 
@@ -31,12 +32,14 @@ class McpServerIn(BaseModel):
     include: list[str] | None = None
     exclude: list[str] | None = None
     max_tools: int | None = None
+    instruction: str | None = None
     skip_test: bool = False
 
     def fields(self) -> dict[str, Any]:
         """Only the fields the client sent."""
         data = self.model_dump(exclude_unset=True)
         data.pop("skip_test", None)
+        data.pop("instruction", None)
         return data
 
 
@@ -56,14 +59,22 @@ def list_servers(_: AdminDep, services: ServicesDep) -> list[dict[str, Any]]:
 async def save_server(name: str, body: McpServerIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Create or update a server; the connection is tested first unless ``skip_test`` is set."""
     data = body.fields()
+    text = (body.instruction or "").strip()
     try:
+        if not text and services.mcp.get(name) is None and not services.instructions.get(f"mcp:{name}"):
+            raise McpConfigError("What is this for? is required: write when the agent should use this server's tools")
+        if text:
+            services.instructions.check(f"mcp:{name}", text)
         if not body.skip_test and data.get("enabled", True):
             server, headers = services.mcp.preview(name, data)
             result = await asyncio.to_thread(services.mcp_manager.test, server, headers)
             if not result["ok"]:
                 raise McpConfigError(f"connection test failed: {result['error']}")
         server = services.mcp.save(name, data)
-    except McpConfigError as exc:
+        if text:
+            services.instructions.set(f"mcp:{name}", text)
+            services.agent.reset_all_prompts()
+    except (McpConfigError, InstructionError) as exc:
         raise _unprocessable(exc) from None
     except VaultError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"the secret store is unavailable: {exc}") from None

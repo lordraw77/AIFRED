@@ -16,6 +16,7 @@ from aifred.auth import AuthService
 from aifred.agent import Agent
 from aifred.config import RuntimeConfig, Settings
 from aifred.gateways.telegram import TelegramGateway
+from aifred.instructions import InstructionService
 from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
@@ -129,6 +130,7 @@ class Services:
         rag: The local knowledge base.
         rag_worker: Background indexer, created by the server process only.
         review: Background self-improvement review.
+        instructions: What MCP servers, toolsets and tools are for.
         mcp: MCP server definitions.
         mcp_manager: Connections to MCP servers (started by the server and the CLI).
     """
@@ -148,11 +150,13 @@ class Services:
     rag: RagService = field(init=False)
     rag_worker: RagWorker | None = field(init=False, default=None)
     review: ReviewService = field(init=False)
+    instructions: InstructionService = field(init=False)
     mcp: McpService = field(init=False)
     mcp_manager: McpManager = field(init=False)
 
     def __post_init__(self) -> None:
         self.review = ReviewService(self)
+        self.instructions = InstructionService(self)
         self.agent = Agent(self)
         self.mcp = McpService(self.store, self.vault, self.config)
         self.mcp_manager = McpManager(self.mcp, self.store)
@@ -223,7 +227,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_chat, api_llm, api_data, api_mcp, api_openai, api_rag, api_system
+    from aifred.gateways import api, api_chat, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -281,6 +285,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_mcp.router)
     app.include_router(api_system.router)
     app.include_router(api_data.router)
+    app.include_router(api_instructions.router)
     app.include_router(api_chat.router)
     app.include_router(api_openai.router)
     app.add_exception_handler(api_openai.OpenAIError, api_openai.openai_error_response)

@@ -352,7 +352,7 @@ async def test_slash_command(services: Services, mcp_up: Callable[..., FakeMcp])
     services.mcp.save("lab", {"url": "https://127.0.0.1:1/mcp", "verify_tls": False, "connect_timeout": 1})
     reply = await commands.run("/mcp reload", ctx)
     assert reply is not None and "- fake: connected, 6 tools, protocol 2026-07-28" in reply.text and "- lab:" in reply.text and "[TLS not verified]" in reply.text
-    assert (await commands.run("/mcp nonsense", ctx)).text == "Usage: /mcp or /mcp reload"  # type: ignore[union-attr]
+    assert (await commands.run("/mcp nonsense", ctx)).text == "Usage: /mcp, /mcp reload or /mcp add <name> <url> <what it is for>"  # type: ignore[union-attr]
     restricted = await commands.run("/mcp", Context("tg:1:1", "telegram", True))
     assert restricted is not None and "not available" in restricted.text
 
@@ -373,7 +373,7 @@ def test_api_requires_the_admin(client: TestClient) -> None:
 
 def test_api_lifecycle(api: TestClient, fake_mcp: Make) -> None:
     server = fake_mcp(token="tok")
-    body = {"url": server.url, "headers": {"Authorization": "Bearer tok"}, "include": ["echo", "add"]}
+    body = {"url": server.url, "headers": {"Authorization": "Bearer tok"}, "include": ["echo", "add"], "instruction": "Fake tools for tests."}
     saved = api.put("/api/mcp/servers/fake", json=body)
     assert saved.status_code == 200, saved.text
     assert saved.json()["headers"] == ["Authorization"] and "tok" not in saved.text and saved.json()["include"] == ["echo", "add"]
@@ -392,20 +392,20 @@ def test_api_lifecycle(api: TestClient, fake_mcp: Make) -> None:
 
 def test_api_rejects_what_does_not_connect(api: TestClient, fake_mcp: Make) -> None:
     server = fake_mcp(token="tok")
-    bad = api.put("/api/mcp/servers/fake", json={"url": server.url})
+    bad = api.put("/api/mcp/servers/fake", json={"url": server.url, "instruction": "Fake tools."})
     assert bad.status_code == 422 and "connection test failed" in bad.text and "credentials" in bad.text
     assert api.get("/api/mcp/servers").json() == []
-    assert api.put("/api/mcp/servers/fake", json={"url": server.url, "skip_test": True}).status_code == 200  # saved anyway on request
-    invalid = api.put("/api/mcp/servers/Bad Name", json={"url": server.url, "skip_test": True})
+    assert api.put("/api/mcp/servers/fake", json={"url": server.url, "skip_test": True, "instruction": "Fake tools."}).status_code == 200  # saved anyway on request
+    invalid = api.put("/api/mcp/servers/Bad Name", json={"url": server.url, "skip_test": True, "instruction": "x"})
     assert invalid.status_code == 422 and "name" in invalid.text
-    assert api.put("/api/mcp/servers/x", json={"url": "ftp://h", "skip_test": True}).status_code == 422
+    assert api.put("/api/mcp/servers/x", json={"url": "ftp://h", "skip_test": True, "instruction": "x"}).status_code == 422
     assert api.put("/api/mcp/servers/fake", json={"headers": {"X-Missing": None}, "skip_test": True}).status_code == 422
 
 
 def test_api_flags_unverified_tls(api: TestClient, fake_mcp: Make) -> None:
     server = fake_mcp(tls=True)
-    assert api.put("/api/mcp/servers/lab", json={"url": server.url}).status_code == 422  # self-signed is refused
-    ok = api.put("/api/mcp/servers/lab", json={"url": server.url, "verify_tls": False})
+    assert api.put("/api/mcp/servers/lab", json={"url": server.url, "instruction": "Lab."}).status_code == 422  # self-signed is refused
+    ok = api.put("/api/mcp/servers/lab", json={"url": server.url, "verify_tls": False, "instruction": "Lab."})
     assert ok.status_code == 200 and ok.json()["tls_unverified"] is True
     custom = api.put("/api/mcp/servers/lab", json={"verify_tls": str(server.cert)})
     assert custom.status_code == 200 and custom.json()["tls_unverified"] is False
