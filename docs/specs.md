@@ -995,3 +995,16 @@ What the implementation settled where section 9.4 left room, or changed:
 - API: `GET /api/mcp/servers`, `PUT|DELETE /api/mcp/servers/{name}`, `POST /api/mcp/servers/{name}/test`, `POST /api/mcp/reload`, `GET /api/mcp/export`. A save connects first and is refused with the reason when it fails (`skip_test` overrides).
 - Chat: `/mcp` lists the servers with their state, `/mcp reload` reconnects. `/mcp add` and the *What is this for?* field belong to the instructions work (phase 8).
 
+## 20. Implementation notes: dashboard (phase 6, first slice)
+
+- The dashboard is served at `/` from `aifred/web/static/` with `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. It ships as ES modules (no build step); routing is by hash.
+- New endpoints: `GET /api/status` (version, uptime, storage, Telegram, MCP and knowledge-base state, secrets backend), `GET /api/sessions` (filter by `source`, preview of the last message), `GET /api/sessions/{id}/messages`, `PUT /api/sessions/{id}` (rename), `DELETE /api/sessions/{id}`.
+- Present: Chat, Models, Config, API keys, Account, System. The other sections of 10.5 follow in the next slice.
+- Second slice, same phase: Sessions, Memory, Skills, Knowledge, Tools, MCP, Journey and Logs. Endpoints added: `GET|POST|PUT|DELETE /api/memory/{target}` (delete takes the exact entry as `entry`), `GET /api/skills`, `GET|PUT|DELETE /api/skills/{name}`, `GET /api/tools`, `GET /api/journal`, `POST /api/journal/{id}/undo`, `GET /api/pending`, `POST /api/pending/{id}/approve|reject`, `GET /api/search`, `GET /api/logs`, `GET /api/logs/stream` (SSE) and `POST /api/restart`.
+
+## 21. Implementation notes: self-improvement (phase 7)
+
+- The review runs on a dedicated thread with its own event loop, one review at a time. A review is due when `REVIEW_EVERY_TURNS` turns have passed since the last one and the unreviewed stretch has at least 6 messages or 2 tool calls. Only the unreviewed part is sent, with the saved notes and skills for context; tool results are never sent. The open Telegram bot is never reviewed.
+- Its only tools are `memory` and `skill_save`, enabled for the review whatever `TOOLSETS` says; its writes use the guarded path of section 8.1. Journal entries: `review/run` plus the memory or skill entries it caused.
+- `/refine` reviews the current conversation now (even with `REVIEW_ENABLED` off). `/journey` lists the latest journal entries and `/journey delete <id>` undoes a memory or skill change. The agent says what it saved in chat unless `NOTIFICATIONS` is `off`; the review's own result is shown at the start of the next turn.
+

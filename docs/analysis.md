@@ -75,8 +75,8 @@ Section numbers below are those of the specification as it was reviewed. Section
 | 3c | Local knowledge base, step two (specs 9.4, ADR-004): sandboxed parser process, PDF with page numbers, docx/xlsx/pptx/odt/ods/odp, JPG/PNG/WebP and scanned pages through the vision route, metadata stripping, vision model test, daily limit, hostile-file tests | todo |
 | 4 | Gateways: `/v1` API, CLI, Telegram, shared slash commands, web chat endpoint; `/approve` and `/reject` | done |
 | 5 | MCP client and fake MCP server (both protocol generations, TLS): migration 4, `mcp_client.py`, `mcp.py`, `/api/mcp/*`, `/mcp` command, `tests/fake_mcp.py`. `/mcp add` and the *What is this for?* field come with phase 8, the dashboard page with phase 6 | done |
-| 6 | Dashboard: login, first-run wizard, Models, Config, Chat, then the other sections | todo |
-| 7 | Self-improvement: background review, journey (the scanner moved to phase 3) | todo |
+| 6 | Dashboard: login, first-run guidance, Chat, Sessions, Memory, Skills, Knowledge, Tools, MCP, Models, Journey, Logs, Config, API keys, Account, System; static serving and every endpoint they need. The Instructions editors belong to phase 8 | done |
+| 7 | Self-improvement: background review, `/refine`, `/journey`, save notices (the scanner moved to phase 3, `/approve` to phase 4, the Journey page to phase 6) | done |
 | 8 | Instructions (Capabilities section, `tool_help`, Suggest button) | todo |
 | 9 | Docker/compose (done, brought forward) and end-to-end tests (todo; need the gateways) | partly done |
 
