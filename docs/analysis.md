@@ -17,8 +17,17 @@ Tier: **M** (stateful service with persistence, authentication and several gatew
 | A7 | Server-side login sessions are stored in an `auth_sessions` table (needed so logout invalidates them). | Phase 1 |
 | A8 | `X-AIFRED-Session` and the `user` field are always namespaced under `api:`. | Phase 4 |
 | A9 | Resolved by D2: the open Telegram bot is kept, with no memory or profile (not injected, no tool), `session_search` limited to its own chat, read-only skills, web only. | Phase 4 |
+| A10 | A local knowledge base (RAG) is in the v0.1 scope, as requested on 26 October 2026 (specs 9.4). It is built after the agent core and before the gateways need it: its dashboard page belongs to phase 6 and its `/kb` commands to phase 4. | Phase 3b, 4, 6 |
+| A11 | Everything stays in the existing SQLite file and container: no vector database, no new service. Vectors are searched exactly with `numpy` (ADR-003, accepted on 26 October 2026, D5). | Phase 3b, Docker |
+| A12 | Embeddings come from the OpenAI-compatible `/embeddings` endpoint of a configured provider. No provider is assumed; a local model (Ollama, vLLM) is recommended so that documents never leave the machine. Which providers expose that endpoint is `[VERIFY]`. | Phase 3b |
+| A13 | Only the admin adds, changes or deletes documents (dashboard, API, a watched folder, URLs). The agent can search but never write, and the open Telegram bot has no access to the knowledge base. | Phase 3b, 4 |
+| A14 | The knowledge base is built in two steps. Step one (phase 3b) ingests text formats. Step two (phase 3c, D6) adds PDF, Office documents and images; images and scans are read by a vision model, parsing is sandboxed, and the two extra dependencies are proposed in ADR-004 (D9). | Phase 3b, 3c |
+| A15 | The embedding model is chosen by the user (global setting, per-collection override); the specification recommends none (D7). | Phase 3b |
+| A16 | Memory for the knowledge base is configurable and larger by default: `RAG_CACHE_MB` 512, `RAG_MAX_CHUNKS` 100,000, container `AIFRED_MEM_LIMIT` 1 GB instead of 512 MB. Searches never exceed the cache: larger collections are scanned in blocks. | Phase 3b, Docker |
 
 ## Inconsistencies in specs.md (all resolved by D3)
+
+Section numbers below are those of the specification as it was reviewed. Sections 9.4 and 9.5 then meant sub-agents and the description assistant, which now live in 14.1 and 14.2; today 9.4 is the local knowledge base.
 
 | # | Issue | Sections |
 | --- | --- | --- |
@@ -62,10 +71,12 @@ Tier: **M** (stateful service with persistence, authentication and several gatew
 | 1 | Foundations: `config`, `store` (schema, FTS5, kv, journal, pending writes), secrets at rest, admin and auth, API keys, settings API, FastAPI skeleton with `/health`, `admin reset-password` command | done |
 | 2 | LLM: SSE client, `<think>` filter, providers and models, route walker with failover, fake LLM | done |
 | 3 | Agent: loop, system prompt, memory, skills, tool registry, built-in toolsets with security tests | done |
-| 4 | Gateways: `/v1` API, CLI, Telegram | todo |
-| 5 | MCP client and fake MCP server (both protocol generations, TLS) | todo |
+| 3b | Local knowledge base, step one (specs 9.4): migration for the `rag_*` tables, chunker, embedding client with retry and budgets, per-collection embedding model and test, memory cache with block-scan fallback, ingestion worker, hybrid search, `knowledge_search`/`knowledge_sources`, admin API, fake `/v1/embeddings` in the tests. The dashboard page comes with phase 6, the `/kb` commands with phase 4 | done |
+| 3c | Local knowledge base, step two (specs 9.4, ADR-004): sandboxed parser process, PDF with page numbers, docx/xlsx/pptx/odt/ods/odp, JPG/PNG/WebP and scanned pages through the vision route, metadata stripping, vision model test, daily limit, hostile-file tests | todo |
+| 4 | Gateways: `/v1` API, CLI, Telegram, shared slash commands, web chat endpoint; `/approve` and `/reject` | done |
+| 5 | MCP client and fake MCP server (both protocol generations, TLS): migration 4, `mcp_client.py`, `mcp.py`, `/api/mcp/*`, `/mcp` command, `tests/fake_mcp.py`. `/mcp add` and the *What is this for?* field come with phase 8, the dashboard page with phase 6 | done |
 | 6 | Dashboard: login, first-run wizard, Models, Config, Chat, then the other sections | todo |
-| 7 | Self-improvement: background review, `/approve` and `/reject` for the approval queue, journey (the scanner moved to phase 3) | todo |
+| 7 | Self-improvement: background review, journey (the scanner moved to phase 3) | todo |
 | 8 | Instructions (Capabilities section, `tool_help`, Suggest button) | todo |
 | 9 | Docker/compose (done, brought forward) and end-to-end tests (todo; need the gateways) | partly done |
 
@@ -96,7 +107,7 @@ Defects found by the live run and fixed: Cloudflare model listing; read timeout 
 ## Phase 3 notes
 
 - Delivered: `scanner.py`, `memory.py`, `skills.py`, `agent.py`, `tools/registry.py`, `tools/builtin.py`, `tools/web.py`; session search can be scoped by session-id prefix. 401 tests in total (179 new).
-- The scanner was brought forward from phase 7 so that no unfiltered write to memory or skills ever exists. The approval queue is filled now (`WRITE_APPROVAL` is honoured); applying a queued write arrives with `/approve` in phase 7.
+- The scanner was brought forward from phase 7 so that no unfiltered write to memory or skills ever exists. The approval queue is filled now (`WRITE_APPROVAL` is honoured); applying a queued write arrives with `/approve`, delivered in phase 4.
 - Open Telegram bot (D2) is enforced in the agent and the registry: no memory in the prompt, no `memory` or `skill_save` tool, own-chat search. The Telegram gateway (phase 4) only has to pass `restricted=True`.
 - Security tests were mutation-checked: removing the workspace confinement, the SSRF address check, the redirect re-check, the restricted tool filter, the memory-in-prompt guard, the search scope or the scanner each fails at least one test.
 - Defects found while testing: `file_read` could return more than `TOOL_OUTPUT_LIMIT`, cutting off its own paging note (now sized to fit); the scanner missed "API key" written with a space; the shutdown blocklist matched ordinary words such as `echo reboot` (now limited to command position).
@@ -118,3 +129,109 @@ Defects found by the live run and fixed: Cloudflare model listing; read timeout 
 - Verified on the Docker host in an isolated project (`aifred-deploytest`, removed afterwards): clean setup, setup repeated with no change, resume after a failed first run, healthy containers as uid 10001 / uid 100 with no capabilities and read-only roots, OpenBao without a published port and without internet, encrypted secrets with no key file, sealed → unseal flow, backup and restore of both volumes, SearXNG JSON search, down/up persistence, real-server test suite (6/6) on OpenBao 2.7.1.
 - Defects found by running it for real, all fixed: the `file` storage type does not exist in OpenBao 2.7 (now Raft); audit devices must be declared in the config; unauthenticated root generation is off by default (break-glass script added); `init: true` exposed the AppRole credentials through `/proc/1/environ` (AIFRED is now PID 1, hardened, with an orphan reaper tested in a PID namespace); a first run that failed after generating the admin password lost it on the second run (now always shown); a silent exit in `setup.sh` from `pipefail` (now reports); `docker compose` refused to start because of a required variable of an inactive profile; `httpx` logged request URLs at INFO.
 - Not covered: end-to-end tests of the gateways (phase 4+), TLS between the containers (documented as optional), log rotation of the OpenBao audit log.
+
+## Local knowledge base (RAG), 26 October 2026
+
+Requested: manage a local RAG. The design is in [specs.md](specs.md) section 9.4 and ADR-003 in [adr.md](adr.md); this section records the reasoning, the open points and the plan.
+
+### What was decided in the specification
+
+| Topic | Choice | Why |
+| --- | --- | --- |
+| Storage | `rag_collections`, `rag_documents`, `rag_chunks` and an FTS5 table in the existing SQLite file | One file to back up; no new service; the keyword side comes for free |
+| Retrieval | Hybrid: exact cosine (dense) plus BM25, fused by reciprocal rank fusion, neighbours merged | Dense finds paraphrases, keywords find exact identifiers; fusion needs no score calibration; keywords still work when embeddings are down |
+| Vector search | Exact, `numpy` matrix product (ADR-003, proposed) | Fast enough at personal scale, nothing to tune, no native extension |
+| Embeddings | The user's configured provider and model (per-collection override); dimension fixed per collection; changing model marks the collection `stale` and re-embeds in the background | Vectors from different models are not comparable |
+| Ingestion | Admin only; watched folder, upload, URL; one background worker; content hash makes it idempotent; only changed chunks are re-embedded; the old version stays searchable until the new one is complete | Cheap re-runs, no half-indexed documents, no self-poisoning by the model |
+| Agent access | `knowledge_search` and `knowledge_sources`, toolset `knowledge`, off by default, never for the open Telegram bot | The documents are private |
+| Safety | Excerpts framed as untrusted; ingest-time scan flags (does not block) suspicious documents | Documentation about prompt injection legitimately contains the phrases a blocker would reject |
+
+### Design and security gaps found while specifying
+
+8. **Indirect prompt injection:** a document, once indexed, is attacker-controlled text delivered by a trusted-looking tool. Mitigated by framing, flagging, admin-only ingestion and the toolset being off for open gateways; not eliminated.
+9. **Privacy of cloud embeddings:** with a hosted embedding provider every chunk leaves the machine. Hence no default provider and a visible notice naming the receiver.
+10. **Memory:** a collection's matrix costs 3 MB per thousand 768-dimension chunks (307 MB at the new default cap of 100,000). It is cached under `RAG_CACHE_MB` (512 MB) and larger collections are scanned in blocks, so memory use is bounded and configurable; the container limit rises to 1 GB by default (`AIFRED_MEM_LIMIT`).
+11. **SQLite write contention:** one connection with a lock serves chat and ingestion. Ingestion must embed outside the lock and commit per document in short transactions, or a large import would stall the conversation.
+12. **Quality is unmeasured:** without a set of golden questions nobody can tell whether a change to chunking or fusion helped. A small evaluation set (questions with the expected source) is part of the test plan and a prerequisite for the reranking item on the roadmap.
+13. **Re-embedding cost:** a model change re-embeds everything; on a paid provider that is money. The dashboard should show the chunk count and an estimate before it starts.
+14. **Backup size:** the knowledge base makes `aifred-data` grow (about 55 MB per 10,000 chunks at 768 dimensions, an estimate).
+15. **Hostile files (step two):** PDF, Office and image parsers are a vulnerability class of their own, and `pypdfium2` is native code. Mitigated by a credential-free child process with limits and archive defences; the container remains the real boundary (ADR-004).
+16. **Images leave the machine:** a hosted vision model receives them (with metadata stripped). Hence no default provider, a daily limit, and a notice naming the receiver. A paid provider must stay last in the route.
+17. **Machine reading is fallible:** a transcription can invent or drop characters (commands, numbers). Excerpts are labelled `machine-read`, and anything safety-relevant should be checked against the original, which the dashboard keeps and shows.
+18. **Typographic injection:** instructions written inside an image defeat any check made before reading. The extracted text is scanned after the vision model has produced it.
+19. **Container memory:** parsing children and the vector cache both live inside the container limit; the defaults (1 GB container, 512 MB cache, 256 MB per parser) must be checked together when changed.
+
+### Decisions (26 October 2026)
+
+| Id | Question | Outcome |
+| --- | --- | --- |
+| D5 | Exact search with `numpy`, `sqlite-vec` or a pure-Python scan? | **`numpy`**, accepted (ADR-003) |
+| D6 | PDF and Office files in v0.1? | **A second step**, phase 3c, which also adds images (JPG, PNG, WebP); the first step stays text-only |
+| D7 | Which embedding model? | **The user's choice**: a global setting with a per-collection override; no recommendation in the specification. A live check on the project's Ollama is optional, to help choosing |
+| D8 | Should the open Telegram bot ever see a collection? | **No for now; roadmap** (per-gateway collection access) |
+| memory | Memory budget of the knowledge base | **Larger by default and configurable** (A16) |
+
+Still open:
+
+| Id | Question | Recommendation |
+| --- | --- | --- |
+| D9 | Add `pypdf` and `pypdfium2` (ADR-004)? | Yes. `pypdf` is pure Python; `pypdfium2` is needed only for scanned PDFs and can be dropped, in which case scans are reported as "needs OCR". Check wheel sizes and arm64 availability first `[VERIFY]` |
+| D10 | Defaults of the vision route: the name `vision`, a daily limit of 200 images, no default provider | Keep. Put a local vision model first and any paid provider (for example Gemini) last |
+| D11 | Which vision-capable model? | Same approach as D7: the user picks one; the vision test in the model editor checks that it works |
+
+### Plan for phase 3b (step one)
+
+1. Migration 3 and `store_rag.py`; unit tests for the queries and the cascade.
+2. Chunker with tests (headings, fences, tables, overlap, unicode, long lines).
+3. Embedding client on the provider layer (keys, TLS, retry, budgets, `llm_usage`), plus the fake `/v1/embeddings` endpoint.
+4. Ingestion worker: idempotency, incremental embedding, atomic swap, `error` and `waiting` states, limits.
+5. Search: dense, keyword, fusion, neighbour merge, fallback and `stale` handling; the golden-question set.
+6. Tools, system-prompt Capabilities entry, restricted-gateway tests, admin API with authentication and CSRF tests.
+7. Live check against the project's Ollama (embedding model choice, D7), then documentation and the acceptance criteria 16 to 20.
+
+The dashboard page (phase 6) and the `/kb` commands (phase 4) follow their phases. Rough size: comparable to the LLM layer of phase 2 without the failover logic.
+
+### Plan for phase 3c (step two)
+
+1. The parser process: a small entry point that reads a file, applies the time, CPU and memory limits, returns text blocks as JSON, and never receives credentials. Tests for timeout, memory limit and crash.
+2. Archive and XML defences for Office files (entry count, uncompressed size, compression ratio, `..` paths, DOCTYPE and entity rejection) and the parsers for docx, xlsx, pptx and the OpenDocument trio.
+3. PDF text extraction with page numbers, encrypted-file refusal, the scan heuristic and page rendering.
+4. Image type detection by bytes, EXIF and text-chunk stripping for JPEG, PNG and WebP, size limits.
+5. The vision call on the provider layer (image content parts, the `vision` route, cache by hash, daily limit, `llm_usage`), the `machine-read` label and the `partial` state.
+6. The vision test and the embedding test in the model editor (generated one-colour image; related and unrelated sentences).
+7. Hostile-file tests (zip bomb, parser spin, entity expansion) and acceptance criteria 21 to 26.
+
+Dependencies to confirm first: D9 (ADR-004).
+
+### Not covered
+
+Legacy Office formats, a local OCR engine, image and audio embeddings, reranking, approximate indexes, per-gateway collections and a folder watcher are on the roadmap (specs 14). Nothing in this change is implemented yet: it is specification and analysis only.
+
+## Phase 3b notes: local knowledge base, step one (26 October 2026)
+
+- **Delivered:** migration 3 (`rag_*` tables, FTS5 index, model `kind` and `dim`), `chunking.py`, `embeddings.py`, `rag.py` (collections, folder scan, URL ingestion, ingestion worker, hybrid search, vector cache), `store_rag.py`, `gateways/api_rag.py`, the `knowledge_search` and `knowledge_sources` tools, the prompt section, embedding-model test, `numpy` 2.5.4 (pinned and hash-locked). Tests: 134 new, 566 passing in total (6 more are skipped unless a real OpenBao is configured).
+- **Verified:** the Docker image builds from the hash-locked file with `numpy` (235 MB) and a document dropped with `docker cp` is scanned, indexed and searched inside the read-only container as the unprivileged user with a 1 GB limit. Exact search of 50,000 × 768 vectors measured at 31 ms.
+- **Mutation checks:** 12 deliberate defects in the fusion, the reuse of embeddings, the similarity floor, flagging, the scan's symlink guard, the upload limit, cache invalidation, the SSRF guard, the toolset gate, the retry rules and the section boundaries. 11 were caught at once. One survived (forcing the cache even over budget) because the old test only compared results; the test now asserts that no matrix is ever built for a collection that does not fit, and catches it.
+- **Live check on the project's Ollama** (6-document corpus, 8 English and Italian questions; `recall@3` is lenient on so small a corpus):
+
+| Model | Dimension | Indexing | recall@3 hybrid / dense / keyword | Top-1 correct (hybrid) |
+| --- | --- | --- | --- | --- |
+| `nomic-embed-text` | 768 | 2.5 s (warm) | 8 / 8 / 7 | 6 of 8 |
+| `bge-m3` | not recorded | 75 to 158 s, including the cold load | 8 / 8 / 7 | 7 of 8 |
+
+  Direct probe of `nomic-embed-text`: related sentences scored 0.95, an unrelated one 0.34. No model is recommended by the specification (D7); these are data for the user's choice. `all-minilm` was not run (English-only).
+- **Defects found while building or checking:** a malformed embeddings answer raised an unhandled exception instead of a clean error; function words (`la`, `l`, `how`, `I`) in the keyword query outranked real matches in a small corpus (now filtered; identifiers are kept); a cold model load exceeded a 120 s request timeout (now `min(provider total, max(2 × first-token, 60 s))`, and a timeout is retried, which is what rescued the first indexing run on `bge-m3`); the first versions of two tests did not test what they claimed (a NaN the fake server could not send, a forced cache that left no trace).
+- **Deviations from the written design, recorded in specs section 17:** staleness is tracked per document, not per collection; the upload is a raw request body, not multipart; models carry a `kind`.
+- **Known limit:** a question like "what happens when the power fails" can still rank the wrong document first when the model is weak on it (seen with `bge-m3` on the Italian phrasing); the hybrid result had the right document in the top three. This is what the golden-question set and the roadmap's reranking item are for.
+- **Not done in this step:** the dashboard page (phase 6), the `/kb` commands (phase 4), PDF/Office/images (phase 3c, awaiting D9 to D11).
+
+## Phase 4 notes
+
+- Delivered: `commands.py` (one command layer for every gateway; the open Telegram bot gets a restricted subset), `writes.py` (guarded writes shared by the tools and `/approve`), `gateways/api_openai.py`, `api_chat.py`, `cli.py`, `telegram.py`. The agent takes an optional `route` (the `model` field of `/v1`) and reports usage and the model in `DoneEvent`.
+- **`/v1/chat/completions`.** Bearer key with role `chat` or `admin`; errors use the OpenAI error format; image content is rejected; the session is the `X-AIFRED-Session` header, then `user`, then `default`, always under `api:`. Streaming waits up to 15 s for the first event, so a quick failure still gets a proper HTTP status, then sends keep-alive comments. Usage is real, not estimated.
+- **Web chat.** `POST /api/chat` (admin session) streams the agent events as SSE; a slash command answers with one `command` event. Sessions are `web:<id>`; the turn is cancelled when the client disconnects.
+- **CLI.** `python -m aifred cli [--session ID] [-m TEXT]`; configuration is reloaded every turn, so dashboard changes apply to a running session. Ctrl-C during a turn interrupts it, twice at the prompt exits.
+- **Telegram.** Long polling with no SDK. The allowlist answers a stranger with their own numeric id; an empty list makes the bot open (restricted, 20 messages a minute per user, startup warning). Private chats only. The session of a chat is kept in the key-value table and `/new` replaces it; the update offset is stored too, so a restart does not replay messages. Errors back off from 1 s to 30 s, honour `retry_after`, wait 15 s on a 409 (another poller) and stop on 401/404. The token is scrubbed from every error text. The gateway restarts by itself when the token, the allowlist or the API base change.
+- Mutation-checked: removing the allowlist test, the restricted flag, the rate limit, the private-chat filter or the token scrubbing each fails a test.
+- 658 tests in total.
+

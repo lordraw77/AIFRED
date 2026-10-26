@@ -79,3 +79,75 @@ AIFRED is a personal agent with one admin. The database holds sessions, messages
 ### How to keep the door open
 
 `Store` is the only module that talks SQL, and the LLM tables live in a mixin. If a move is ever needed, the work is bounded: port `store.py` and `store_llm.py`, replace FTS5, and keep the migration list. No other module imports `sqlite3`. Valkey (see ADR-001) would join at that point for shared locks and rate limits.
+
+---
+
+## ADR-003: how the local knowledge base searches vectors
+
+**Date:** 26 October 2026. **Status:** accepted on 26 October 2026 (specification 9.4).
+
+### Context
+
+The knowledge base stores a few thousand to a few tens of thousands of chunks, each with an embedding of 384 to 1536 floats, for a single user. The decision is how to compare a query vector with them. The specification asks for few dependencies, one container and one SQLite file.
+
+### Options
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Pure Python over `array`/`struct` | No dependency | About 38 million multiply-adds for 50,000 chunks at 768 dimensions: seconds per query in CPython, far too slow for a chat tool call |
+| B. `numpy`, exact search over a float32 matrix | One well-maintained dependency; a single matrix product scores every chunk; exact, so results are reproducible and need no index to build or tune; trivial to test | Adds about 35 MB to the image; the searched collection's matrix is held in memory (3 MB per thousand 768-dimension chunks) |
+| C. `sqlite-vec` extension | Vectors inside SQLite, approximate indexes | A native extension to build, ship and load in a read-only slim image; younger project; extra moving part for a corpus this small |
+| D. A vector database container (Qdrant, Chroma, pgvector) | Scales further, filtering, persistence features | A second stateful service to secure, back up and keep unsealed or authenticated; contradicts the single-container principle; ADR-002's reasons against PostgreSQL apply |
+
+### Decision
+
+**B.** Exact search is both the simplest and fast enough at this scale (a matrix product over 50,000 × 768 float32 values is some tens of milliseconds with BLAS; this is an estimate to be measured in phase 3b). Retrieval is **hybrid**: the same chunks are also indexed with FTS5, and the two rankings are merged by reciprocal rank fusion. Keywords catch exact identifiers (hostnames, error codes, flags) that embeddings blur, embeddings catch paraphrases that share no word, and the keyword side keeps working when the embedding service is down.
+
+### Consequences
+
+- New dependency `numpy`, pinned and hash-locked like the others (`requirements.lock`); manylinux wheels exist for x86-64 and arm64, so the image still needs no compiler.
+- Memory is the limit that matters, not time, so it is bounded and configurable: matrices of recently searched collections live in an LRU cache of `RAG_CACHE_MB` (default 512 MB), loaded by streaming rows into a preallocated array (peak: one matrix plus one batch); a collection that does not fit is scanned from the database in blocks with constant memory. `RAG_MAX_CHUNKS` defaults to 100,000 (about 307 MB at 768 dimensions) and the container limit rises from 512 MB to 1 GB by default (`AIFRED_MEM_LIMIT`). Vectors can be stored as `float16` later to halve all of this.
+- Vectors live in the main database, so the knowledge base is covered by the existing backup and restore of `aifred-data`; it also makes the volume larger (see the sizing table in 9.4).
+- Changing the embedding model invalidates a collection's vectors; the collection is re-embedded in the background and searched by keywords meanwhile.
+
+### Revisit when
+
+1. A collection needs more than about 500,000 chunks (memory, or search above 100 ms): move the matrix to `float16` or `int8`, then to `sqlite-vec` or an HNSW index.
+2. Search must filter by metadata at scale, or several users need separate access rules.
+3. Retrieval quality, measured on a set of golden questions, calls for reranking (roadmap) rather than a different index.
+
+---
+
+## ADR-004: reading PDF, Office documents and images for the knowledge base
+
+**Date:** 26 October 2026. **Status:** proposed. It adds two dependencies, so it is to be confirmed before the second step of the knowledge base is implemented (specification 9.4).
+
+### Context
+
+The second step must ingest PDF, Office documents (docx, xlsx, pptx, odt, ods, odp) and images (jpg, png, webp). These are hostile-input formats: parsers for them are a classic source of vulnerabilities, and the service holds the OpenBao credentials. Images and scanned pages also need their text read, which classically means OCR.
+
+### Options
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Standard library only | No dependency | No PDF at all; images and scans unreadable |
+| B. `pypdf` + `pypdfium2`, Office through `zipfile`/`xml.etree`, images and scans through the vision model, everything parsed in a sandboxed child process | Two small wheels with no system packages; Office formats need no dependency; the vision model reads photos, screenshots and scans better than classic OCR and reuses providers, failover and budgets already built; no native OCR engine to ship | `pypdfium2` bundles native PDFium code; vision reading costs tokens or needs a vision-capable local model; transcription can be wrong |
+| C. System tools in the image (poppler, tesseract, LibreOffice) | Mature, local OCR | A large image, many native packages to patch, a much bigger attack surface; LibreOffice in a read-only hardened container is awkward |
+| D. Document-AI libraries (unstructured, docling) | Layout-aware extraction | Very large dependency trees (machine-learning runtimes), slow, hard to hash-lock and keep small |
+
+### Decision
+
+**B.** Text PDFs use `pypdf` (pure Python); pages with no text layer are rendered with `pypdfium2` and sent, like any image, to a vision model through a dedicated route (`RAG_VISION_ROUTE`). Office files are read with the standard library after defensive checks. All parsing runs in a child process that has no credentials and is limited in time, CPU and memory, so a parser bug costs one document and not the service. If `pypdfium2` is rejected, scanned PDFs are reported as "needs OCR" and everything else still works.
+
+### Consequences
+
+- Two new dependencies, pinned and hash-locked like the rest. Wheel sizes and platform availability are `[VERIFY]` before implementation (the image must stay buildable without a compiler on x86-64 and arm64).
+- The vision route has no default provider: images (metadata stripped first) go only where the admin sends them, and a paid provider must sit last in the route. A daily limit protects the budget.
+- Machine-read text is approximate and labelled as such; it is also scanned for injected instructions after reading.
+- The sandbox is only as strong as process isolation inside the container (no credentials, rlimits, minimal environment). It does not stop a parser exploit from reading `/data`; hence the single container is still the boundary, and the toolset stays admin-only.
+
+### Revisit when
+
+1. A local OCR engine becomes preferable to a vision model (cost, latency, accuracy on dense scans): add tesseract behind the same interface.
+2. Layout matters (columns, forms, tables in scanned pages): consider a layout-aware parser in a separate container.
+3. Parser vulnerabilities in `pypdfium2` or `pypdf` make a separate parsing container worthwhile.

@@ -7,13 +7,13 @@
                         │ published
  ┌──────────────────────┴──────────────┐         ┌───────────────────────────┐
  │ aifred   uid 10001, read-only, no   │  vault  │ openbao   uid 100, read-only, no
- │          capabilities, 512 MB       ├─────────┤           capabilities, 256 MB
+ │          capabilities, 1 GB         ├─────────┤           capabilities, 256 MB
  │          internet: yes              │ network │           internet: no, no published port
  └───────────────┬─────────────────────┘ (internal)└──────────────┬────────────┘
                  │ aifred-data (/data)                            │ openbao-data, openbao-logs
 ```
 
-- **aifred**: the agent (API now; dashboard and gateways as the phases land). All state is in the `aifred-data` volume. It holds no master key: the key for stored secrets is a Transit key inside OpenBao.
+- **aifred**: the agent (API now; dashboard and gateways as the phases land; the local knowledge base, text formats, is built). All state is in the `aifred-data` volume. It holds no master key: the key for stored secrets is a Transit key inside OpenBao.
 - **openbao**: the secrets server (ADR-001 in [adr.md](adr.md)). Reachable only from the AIFRED container, over an internal Docker network that has no route to the outside and publishes no port.
 - **searxng** (optional, profile `search`): web search for the `web_search` tool, reachable by AIFRED at `http://searxng:8080`.
 
@@ -52,6 +52,42 @@ With `OPENBAO_KEY_SHARES=5 OPENBAO_KEY_THRESHOLD=3 make docker/run` the key is s
 | Update AIFRED | pull the new code, `make test`, `make docker/run` (rebuilds and recreates `aifred`; data is kept) |
 | Update OpenBao | change `OPENBAO_VERSION` in `.env`, run the real-server tests (below), `docker compose up -d openbao`, `make unseal` |
 | Move secrets in from the file backend | `docker compose exec aifred python -m aifred admin migrate-secrets` (the old key must still be in the volume) |
+
+## Using AIFRED
+
+- **Command line:** `docker compose exec aifred python -m aifred cli` (add `--session NAME` to resume, `-m "text"` for one question). Type `/help` for the commands.
+- **Telegram:** create a bot with @BotFather, then set `TELEGRAM_TOKEN` in the dashboard. With `TELEGRAM_ALLOWED_IDS` empty the bot is **open to everyone** with a restricted set of capabilities; message it from your account to learn your numeric id (it answers strangers with it) and put that id in the list to get the full agent. Changes apply without a restart.
+- **OpenAI-compatible API:** `POST /v1/chat/completions` with an API key of role `chat`; the `model` field selects a route or `provider/model`. Pass `X-AIFRED-Session` to keep a conversation.
+
+## MCP servers
+
+Add servers on the dashboard (MCP page, phase 6) or with `PUT /api/mcp/servers/<name>`; the connection is tested before saving. Header values (tokens) are encrypted in the secret store and never shown again. To seed a fresh install put a `mcp.json` in the data volume (format in the specs, 9.2): it is imported once, its headers are encrypted and the file is deleted. Then enable the tools for a gateway by adding `mcp` (all servers) or `mcp:<name>` to `TOOLSETS`. `/mcp` shows the state of every server and `/mcp reload` reconnects. MCP servers are reached over HTTP(S) only, so run each one as its own container on a network the AIFRED container can reach; for a certificate from a private CA mount the PEM file and set `verify_tls` to its path.
+
+## Knowledge base (RAG)
+
+Off by default. To use it:
+
+1. **Pick an embedding model** on a provider you have added (Models page, or `POST /api/providers/{id}/models/{model}/embedding-test`). A local model (Ollama, vLLM) keeps your documents on the machine; a hosted one receives every chunk. Then set `RAG_ENABLED`, `RAG_EMBED_PROVIDER` and `RAG_EMBED_MODEL` on the Config page. Without a model, documents are still indexed for keyword search.
+2. **Add documents**, any of these ways:
+   ```bash
+   # drop files in a sub-folder named after the collection, then ask for a scan
+   docker compose exec aifred mkdir -p /data/workspace/knowledge/homelab
+   docker compose cp ./notes/. aifred:/data/workspace/knowledge/homelab/
+   curl -s -b cookies -H "X-CSRF-Token: $CSRF" -X POST http://127.0.0.1:8700/api/rag/scan -H 'content-type: application/json' -d '{}'
+
+   # or upload one file (the file is the raw request body)
+   curl -s -b cookies -H "X-CSRF-Token: $CSRF" -X POST --data-binary @runbook.md \
+     "http://127.0.0.1:8700/api/rag/documents?collection=homelab&name=runbook.md"
+   ```
+   With `RAG_SCAN_MINUTES` above 0 the folder is rescanned by itself. Text formats only for now: Markdown, text, HTML, JSON, CSV, YAML and source code.
+3. **Let the model use it**: add `knowledge` to `TOOLSETS` (or to one gateway's list). It is never offered to an open Telegram bot.
+
+Things to know:
+
+- **Memory.** Searching keeps a collection's vectors in memory (`RAG_CACHE_MB`, 512 by default; 3 MB per thousand 768-dimension chunks). A collection that does not fit is read from the database in blocks, slower but bounded. The container limit is `AIFRED_MEM_LIMIT` (1 GB by default): raise it together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS` if you index a lot.
+- **Disk and backups.** Expect about 55 MB per 10,000 chunks at 768 dimensions (an estimate). Documents live in the `aifred-data` volume, so `make backup` covers them, in clear text like conversations.
+- **Changing the embedding model** makes the vectors of the collection stale. Searches keep working (keywords only for the stale part) while you run a re-index (`POST /api/rag/reindex`), which embeds everything again; on a paid provider that costs tokens.
+- **A document that stays `waiting`** means the embedding service is down or its token budget is reached; it is retried by itself with growing delays. `error` documents show the reason; fix the cause, then re-index or upload again.
 
 ## Backup and restore
 
@@ -98,6 +134,7 @@ Read by **docker compose** and the scripts from `.env` (or the shell; the shell 
 | `AIFRED_OPENBAO_ROLE_ID`, `AIFRED_OPENBAO_SECRET_ID` | written by `setup.sh` | AppRole credentials |
 | `AIFRED_OPENBAO_ADDR`, `AIFRED_OPENBAO_MOUNT`, `AIFRED_OPENBAO_KEY` | `http://openbao:8200`, `transit`, `aifred` | Where and how AIFRED reaches OpenBao |
 | `AIFRED_BIND`, `AIFRED_PORT` | `127.0.0.1`, `8700` | Interface and port published on the host |
+| `AIFRED_MEM_LIMIT` | `1g` | Memory limit of the AIFRED container. The knowledge base caches vectors in memory (`RAG_CACHE_MB`, 512 MB by default; 307 MB for 100,000 chunks of 768 dimensions) and the document parsers run inside the same limit. Raise this together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS` |
 | `AIFRED_VERSION` | `0.1.0.dev0` | Image tag |
 | `OPENBAO_VERSION`, `SEARXNG_VERSION` | `2.7.1`, `2026.10.24-ef0ec03da` | Image tags of the other services |
 | `SEARXNG_SECRET` | generated | SearXNG server secret (profile `search`) |
