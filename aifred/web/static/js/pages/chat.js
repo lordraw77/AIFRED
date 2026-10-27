@@ -1,17 +1,26 @@
 // Chat: streaming conversation over POST /api/chat (SSE of JSON events), with a list of web conversations.
-import { ago, attempt, clear, empty, get, h, icon, number, state, store, toast, uuid } from "../core.js";
+import { ago, attempt, clear, del, empty, get, h, icon, number, state, store, toast, uuid } from "../core.js";
+import { renderMarkdown } from "../md.js";
 
 const SESSION_KEY = "chat.session";
+const RESULT_LIMIT = 6000;   // how much of a tool result the chat keeps; sub-agent answers are long
 
 function newSessionId() { return `web:${uuid()}`; }
 
 function chip(name, args, result) {
-  const line = h("span", { class: "chip", role: "button", tabindex: "0" }, `· ${name}(${args})`);
-  const out = h("div", { class: "chip-result", hidden: true }, result || "");
-  const toggle = () => { out.hidden = !out.hidden; };
+  const caret = h("span", { class: "caret", "aria-hidden": "true" }, "▸");
+  const line = h("span", { class: "chip", role: "button", tabindex: "0", "aria-expanded": "false" }, caret, ` ${name}(${args})`);
+  const out = h("div", { class: "chip-result", hidden: true });
+  const fill = (text) => { clear(out); out.append(renderMarkdown(String(text || "").slice(0, RESULT_LIMIT), { links: true, breaks: true })); };
+  fill(result);
+  const toggle = () => {
+    out.hidden = !out.hidden;
+    caret.textContent = out.hidden ? "▸" : "▾";
+    line.setAttribute("aria-expanded", String(!out.hidden));
+  };
   line.addEventListener("click", toggle);
   line.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
-  return { line, out, wrap: h("div", {}, line, out) };
+  return { line, out, fill, wrap: h("div", {}, line, out) };
 }
 
 function shortArgs(raw) {
@@ -35,14 +44,24 @@ function renderStored(messages) {
       }
     } else if (m.role === "tool") {
       const c = pending.get(m.tool_call_id);
-      if (c) c.out.textContent = (m.content || "").slice(0, 500);
+      if (c) c.fill(m.content);
     }
   }
   return nodes;
 }
 
+/** Put text in a message body: the assistant's text is Markdown, the rest stays plain. */
+function setBody(body, text, markdown) {
+  clear(body);
+  if (markdown && text) body.append(renderMarkdown(text, { links: true, breaks: true }));
+  else body.textContent = text;
+  body.classList.toggle("rich", Boolean(markdown && text));
+}
+
 function message(role, text) {
-  return h("div", { class: `msg ${role}` }, h("div", { class: "who" }, role === "user" ? "You" : role === "error" ? "Error" : "AIFRED"), h("div", { class: "body" }, text));
+  const body = h("div", { class: "body" });
+  setBody(body, text, role === "assistant");
+  return h("div", { class: `msg ${role}` }, h("div", { class: "who" }, role === "user" ? "You" : role === "error" ? "Error" : "AIFRED"), body);
 }
 
 async function* events(response) {
@@ -88,15 +107,30 @@ export default {
       else log.append(...renderStored(rows));
       scroll(); refreshList();
     };
+    const remove = async (id) => {
+      if (!await attempt(() => del(`/api/sessions/${encodeURIComponent(id)}`), "Conversation deleted")) return;
+      if (id === sessionId) { store(SESSION_KEY, ""); await select(newSessionId()); } else refreshList();
+    };
+    // a trash button that turns into "Delete? Yes / No" so a stray click removes nothing
+    const deleter = (id) => {
+      const wrap = h("span", { class: "s-del" });
+      const rest = () => { clear(wrap); wrap.append(h("button", { class: "icon-btn", type: "button", title: "Delete this conversation", "aria-label": "Delete this conversation", onclick: ask }, icon("trash"))); };
+      const ask = () => {
+        clear(wrap);
+        wrap.append(h("button", { class: "btn btn-danger btn-sm", type: "button", onclick: () => remove(id) }, "Delete"), h("button", { class: "btn btn-sm", type: "button", onclick: rest }, "No"));
+      };
+      rest();
+      return wrap;
+    };
     const refreshList = async () => {
       const rows = await attempt(() => get("/api/sessions?source=web&limit=50")) || [];
       clear(list);
       if (!rows.length) list.append(h("p", { class: "muted pad" }, "No conversations yet."));
       for (const s of rows) {
-        const item = h("button", { class: "s-item", type: "button", "aria-current": s.id === sessionId ? "true" : null, onclick: () => select(s.id) },
+        const pick = h("button", { class: "s-item", type: "button", "aria-current": s.id === sessionId ? "true" : null, onclick: () => select(s.id) },
           h("span", { class: "s-title" }, s.title || s.preview || "(untitled)"),
           h("span", { class: "s-meta" }, `${s.message_count} msgs · ${ago(s.updated)}`));
-        list.append(item);
+        list.append(h("div", { class: "s-row", role: "listitem" }, pick, deleter(s.id)));
       }
     };
 
@@ -110,6 +144,9 @@ export default {
       log.append(message("user", text));
       const answer = message("assistant", "");
       const body = answer.querySelector(".body");
+      let raw = "", frame = 0;
+      const draw = () => { frame = 0; setBody(body, raw, true); scroll(); };
+      const show = () => { if (!frame) frame = requestAnimationFrame(draw); };   // re-render at most once per frame
       log.append(answer); scroll();
       controller = new AbortController();
       setRunning(true);
@@ -127,15 +164,15 @@ export default {
           throw new Error(typeof err.detail === "string" ? err.detail : `Request failed (HTTP ${response.status})`);
         }
         for await (const ev of events(response)) {
-          if (ev.type === "token") body.textContent += ev.text;
-          else if (ev.type === "reset") body.textContent = "";
+          if (ev.type === "token") { raw += ev.text; show(); }
+          else if (ev.type === "reset") { raw = ""; show(); }
           else if (ev.type === "tool_call") {
             const c = chip(ev.name, shortArgs(ev.arguments), "…");
             tools.set(ev.name, c);
             answer.before(c.wrap);
           } else if (ev.type === "tool_result") {
             const c = tools.get(ev.name);
-            if (c) c.out.textContent = (ev.content || "").slice(0, 500);
+            if (c) c.fill(ev.content);
           } else if (ev.type === "notice") toast(ev.text);
           else if (ev.type === "command") {
             answer.remove();
@@ -143,11 +180,12 @@ export default {
             if (ev.session_id) { await select(ev.session_id); }
             return;
           } else if (ev.type === "done") {
-            if (!body.textContent) body.textContent = ev.content || "";
+            if (!raw) raw = ev.content || "";
+            draw();
             usage = ev;
           } else if (ev.type === "error") {
             answer.className = "msg error"; answer.querySelector(".who").textContent = "Error";
-            body.textContent = ev.message;
+            raw = ""; setBody(body, ev.message, false);
           }
           scroll();
         }
@@ -156,9 +194,10 @@ export default {
           answer.append(h("div", { class: "usage-line" }, `${usage.model || ""} · ${number((u.prompt_tokens || 0) + (u.completion_tokens || 0))} tokens`));
         }
       } catch (err) {
-        if (err.name === "AbortError") body.append(h("span", { class: "muted" }, "\n(stopped)"));
-        else { answer.className = "msg error"; answer.querySelector(".who").textContent = "Error"; body.textContent = err.message; }
+        if (err.name === "AbortError") { draw(); body.append(h("span", { class: "muted" }, "\n(stopped)")); }
+        else { answer.className = "msg error"; answer.querySelector(".who").textContent = "Error"; raw = ""; setBody(body, err.message, false); }
       } finally {
+        if (frame) { cancelAnimationFrame(frame); draw(); }
         controller = null; setRunning(false); scroll(); refreshList();
       }
     };

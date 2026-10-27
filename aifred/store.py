@@ -522,8 +522,9 @@ class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, 
             return c.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, session_id)).rowcount > 0
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session and its messages; returns whether it existed."""
+        """Delete a session, its messages and the sub-agent sessions it started; returns whether it existed."""
         with self._tx() as c:
+            c.execute("DELETE FROM sessions WHERE parent_id = ?", (session_id,))
             return c.execute("DELETE FROM sessions WHERE id = ?", (session_id,)).rowcount > 0
 
     def add_message(

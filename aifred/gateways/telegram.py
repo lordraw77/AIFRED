@@ -19,6 +19,7 @@ import httpx
 
 from aifred.agent import DoneEvent, ErrorEvent, NoticeEvent
 from aifred.commands import Commands, Context
+from aifred.tgformat import to_html
 from aifred.vault import VaultUnavailable
 
 if TYPE_CHECKING:
@@ -64,6 +65,14 @@ def split_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
     return parts
 
 
+def _formatted(chat_id: int, piece: str) -> dict[str, Any]:
+    """The sendMessage body for a piece of Markdown: HTML when it fits Telegram's limit, else plain text."""
+    rendered = to_html(piece)
+    if len(rendered) > 4096:
+        return {"chat_id": chat_id, "text": piece}
+    return {"chat_id": chat_id, "text": rendered, "parse_mode": "HTML", "link_preview_options": {"is_disabled": True}}
+
+
 async def notify(services: Services, chat_id: int, text: str) -> None:
     """Send a message on the admin's behalf (scheduled tasks), independent of the polling loop.
 
@@ -85,7 +94,9 @@ async def notify(services: Services, chat_id: int, text: str) -> None:
     async with httpx.AsyncClient(timeout=30) as client:
         for piece in split_message(text):
             try:
-                response = await client.post(f"{base}/bot{token}/sendMessage", json={"chat_id": chat_id, "text": piece})
+                response = await client.post(f"{base}/bot{token}/sendMessage", json=_formatted(chat_id, piece))
+                if response.status_code == 400:   # Telegram could not parse the markup: send the text as it is
+                    response = await client.post(f"{base}/bot{token}/sendMessage", json={"chat_id": chat_id, "text": piece})
             except httpx.HTTPError as exc:
                 raise TelegramError(f"{type(exc).__name__}: {exc}".replace(token, "***")[:200]) from None
             if response.status_code != 200:
@@ -182,7 +193,12 @@ class TelegramGateway:
     async def _send(self, chat_id: int, text: str) -> None:
         for piece in split_message(text):
             try:
-                await self._call("sendMessage", {"chat_id": chat_id, "text": piece})
+                try:
+                    await self._call("sendMessage", _formatted(chat_id, piece))
+                except TelegramError as exc:
+                    if exc.status != 400:
+                        raise
+                    await self._call("sendMessage", {"chat_id": chat_id, "text": piece})   # the markup was refused: plain text
             except TelegramError as exc:
                 logger.warning("Could not send a Telegram message: %s", exc)
                 return

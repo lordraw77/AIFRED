@@ -2,6 +2,13 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.2.1] - 2026-10-27
+
+### Added
+- Chat: answers are rendered as Markdown (headings, lists, tables, quotes, code, bold and italic, and clickable `http(s)` links that open in a new tab; HTML is never rendered). Tool results, including sub-agent answers, show a ▸/▾ marker, stay collapsed until opened and are Markdown too (up to 6,000 characters instead of 500).
+- Telegram: answers (and scheduled-task deliveries) are sent formatted: Markdown becomes Telegram HTML (bold, italic, code, links, bullets, headings in bold, tables as aligned text). Everything else is escaped and only `http(s)` links are kept; if Telegram refuses the markup the message is sent again as plain text.
+- Chat: each conversation in the list has a delete button with a Yes/No confirmation. Deleting a conversation also deletes the sub-agent conversations it started.
+
 ## [0.2.0] - 2026-10-27
 
 ### Added

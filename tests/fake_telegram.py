@@ -25,6 +25,8 @@ class FakeTelegram:
         offsets: The ``offset`` of every ``getUpdates``.
         failures: Queued ``(status, body)`` answers for upcoming ``getUpdates`` calls.
         hold: Seconds a ``getUpdates`` waits when nothing is queued (a real long poll holds for up to 50 s).
+        reject_markup: Answer 400 to a `sendMessage` that asks for a parse mode (Telegram refusing the markup).
+        parse_modes: The `parse_mode` of every formatted `sendMessage`.
     """
 
     token: str = TOKEN
@@ -33,6 +35,8 @@ class FakeTelegram:
     offsets: list[int] = field(default_factory=list)
     failures: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     hold: float | None = None
+    reject_markup: bool = False
+    parse_modes: list[str] = field(default_factory=list)
     port: int = 0
     _updates: list[dict[str, Any]] = field(default_factory=list)
     _next: int = 1
@@ -65,6 +69,10 @@ class FakeTelegram:
             if method == "getMe":
                 return JSONResponse({"ok": True, "result": {"username": "aifred_bot"}})
             if method == "sendMessage":
+                if body.get("parse_mode"):
+                    self.parse_modes.append(body["parse_mode"])
+                    if self.reject_markup:
+                        return JSONResponse({"ok": False, "description": "Bad Request: can't parse entities"}, status_code=400)
                 self.sent.append((body["chat_id"], body["text"]))
                 return JSONResponse({"ok": True, "result": {}})
             if method == "sendChatAction":
