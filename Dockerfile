@@ -12,10 +12,19 @@ COPY requirements.lock /tmp/requirements.lock
 RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.lock
 
 FROM ${PYTHON_IMAGE}
-ARG VERSION=0.1.0.dev0
+ARG VERSION=0.1.0
 LABEL org.opencontainers.image.title="AIFRED" \
       org.opencontainers.image.description="A lean, self-hosted personal AI agent" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/lordraw77/AIFRED" \
+      org.opencontainers.image.url="https://hub.docker.com/r/lordraw/aifred" \
+      org.opencontainers.image.documentation="https://github.com/lordraw77/AIFRED/blob/main/docs/deploy.md"
+
+# security updates that the pinned base image does not have yet (openssl 3.0.22-1~deb12u2); drop this line when the
+# digest above is refreshed and `docker run --rm aquasec/trivy image` is clean without it
+RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libssl3 openssl \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 aifred \
  && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin aifred \
@@ -29,6 +38,10 @@ ENV AIFRED_DATA_DIR=/data \
     PYTHONDONTWRITEBYTECODE=1
 
 COPY --from=build /opt/venv /opt/venv
+# pip is only needed to build the venv; leaving it out removes a package manager (and the libraries vendored
+# inside it) from the running image
+RUN rm -rf /opt/venv/bin/pip* /opt/venv/lib/python3.13/site-packages/pip /opt/venv/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip* /usr/local/lib/python3.13/site-packages/pip /usr/local/lib/python3.13/site-packages/pip-*.dist-info
 # the code is owned by root and read-only for the service
 COPY aifred /app/aifred
 

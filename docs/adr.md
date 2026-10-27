@@ -120,7 +120,7 @@ The knowledge base stores a few thousand to a few tens of thousands of chunks, e
 
 ## ADR-004: reading PDF, Office documents and images for the knowledge base
 
-**Date:** 26 October 2026. **Status:** proposed. It adds two dependencies, so it is to be confirmed before the second step of the knowledge base is implemented (specification 9.4).
+**Date:** 26 October 2026. **Status:** accepted on 26 October 2026 (decision D9). It adds two dependencies for the second step of the knowledge base (specification 9.4).
 
 ### Context
 
@@ -141,7 +141,8 @@ The second step must ingest PDF, Office documents (docx, xlsx, pptx, odt, ods, o
 
 ### Consequences
 
-- Two new dependencies, pinned and hash-locked like the rest. Wheel sizes and platform availability are `[VERIFY]` before implementation (the image must stay buildable without a compiler on x86-64 and arm64).
+- Two new dependencies, pinned (`pypdf` 6.21.2, `pypdfium2` 5.14.0) and hash-locked like the rest. Checked on PyPI on 26 October 2026: `pypdf` is a 0.41 MB pure-Python wheel; `pypdfium2` is a native wheel of 3.8 MB (x86-64) and 3.7 MB (arm64) for `manylinux2014` with the PDFium library inside, so the image builds on both without a compiler.
+- `RAG_PARSE_MEMORY_MB` defaults to 768, not 256 as first written: it limits *address space*, and Python with `pypdf` (which loads the `cryptography` library) already maps about 280 MB before it reads anything. 384 MB is the practical floor; the setting is documented as an address-space limit.
 - The vision route has no default provider: images (metadata stripped first) go only where the admin sends them, and a paid provider must sit last in the route. A daily limit protects the budget.
 - Machine-read text is approximate and labelled as such; it is also scanned for injected instructions after reading.
 - The sandbox is only as strong as process isolation inside the container (no credentials, rlimits, minimal environment). It does not stop a parser exploit from reading `/data`; hence the single container is still the boundary, and the toolset stays admin-only.

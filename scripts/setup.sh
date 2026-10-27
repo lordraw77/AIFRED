@@ -80,7 +80,11 @@ fi
 # 4. AIFRED --------------------------------------------------------------------------------------
 say "Building the AIFRED image..."
 build_log="$(mktemp)"
-$COMPOSE build aifred >"$build_log" 2>&1 || { tail -n 40 "$build_log" >&2; rm -f "$build_log"; die "the image build failed"; }
+if [ "${AIFRED_PULL:-}" = "1" ]; then
+  $COMPOSE pull aifred >"$build_log" 2>&1 || { tail -n 40 "$build_log" >&2; rm -f "$build_log"; die "could not pull the image (is AIFRED_IMAGE set, for example to lordraw/aifred?)"; }
+else
+  $COMPOSE build aifred >"$build_log" 2>&1 || { tail -n 40 "$build_log" >&2; rm -f "$build_log"; die "the image build failed"; }
+fi
 rm -f "$build_log"
 say "Starting AIFRED..."
 $COMPOSE up -d aifred

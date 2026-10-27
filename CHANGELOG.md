@@ -1,10 +1,16 @@
 # Changelog
 
-All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the project is pre-release (`0.1.0.dev0`).
+All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.1.0] - 2026-10-27
+
+First public release.
 
 ### Added
+- **Project files.** `CONTRIBUTING.md` and `SECURITY.md`; the specification now holds the implementation details inside the sections they belong to instead of appended notes; the README is up to date.
+- **License.** AIFRED is released under the MIT License (`LICENSE`), so anyone may use, modify, fork and redistribute it. A Docker Hub overview is in `docs/dockerhub.md`; the image labels now carry the license and the source and documentation links.
+- **Docker Hub image.** `lordraw/aifred` (`0.1.0`, `latest`, linux/amd64): `AIFRED_IMAGE` and `AIFRED_PULL=1` make `docker compose` and `scripts/setup.sh` use it instead of building. The image no longer ships `pip`, carries the pending openssl security update and has no HIGH or CRITICAL finding with a fix in a Trivy scan.
+- **Knowledge base, second step (phase 3c).** PDF (with page numbers in citations), docx, xlsx, pptx, odt, ods, odp, and JPG/PNG/WebP images; scanned PDF pages and images are read by a vision model on a dedicated `vision` route that has no default provider, needs *Test vision*, is capped by `RAG_VISION_DAILY_LIMIT` (200) and is never used for chat. Metadata (EXIF, GPS, XMP, comments) is stripped before anything leaves the machine; descriptions are cached by image hash; text read by a model is labelled `machine-read` and scanned for injected instructions. Every file is parsed in a limited child process (no credentials, time, CPU and memory limits, archive and XML defences). Documents that hit a limit are `partial`, not lost. Thumbnails and the original file on the Knowledge page. New dependencies `pypdf` and `pypdfium2` (ADR-004 accepted).
 - **Instructions (phase 8).** Each MCP server, tool group or tool can carry a note saying what it is for. The system prompt gets a Capabilities section from the notes of what is enabled for the gateway (shortened to `INSTRUCTIONS_BUDGET`), and the new `tool_help` tool returns the full text. *What is this for?* is required when adding an MCP server (dashboard, API, `/mcp add`); a Suggest button drafts it from the server's tools (shown, never saved until accepted); undocumented servers are flagged. `/instructions`, an editor on the MCP and Tools pages, and proposals from the background review that wait for approval.
 - **Background self-improvement review (phase 7).** After a substantial turn a separate model call (the `review` route, capped by `REVIEW_MAX_INPUT_TOKENS`) re-reads the conversation and may save memory entries or skills with only the `memory` and `skill_save` tools, through the same safety filter, journal and approval queue as everything else. It runs on its own thread, never for the open Telegram bot, and never sees tool results. New commands `/refine` (review now) and `/journey [delete <id>]`; chat now says what was saved (`NOTIFICATIONS`).
 - **Web dashboard, the other sections (phase 6).** Sessions (overview, history search, rename, export, delete), Memory, Skills (with a safe Markdown preview), Knowledge (collections, upload, URL, scan, re-index, test search), Tools, MCP, Journey (approval queue and undo) and Logs (live), plus a Restart button, `g` + letter shortcuts and read-only viewing of CLI and Telegram conversations. New endpoints for memory, skills, tools, journal and approvals, search, logs and restart.
@@ -25,7 +31,7 @@ All notable changes to AIFRED. The format follows [Keep a Changelog](https://kee
 - Open Telegram bot: no memory, no knowledge base, no MCP, own-chat search only; the bot token is scrubbed from every error text.
 - MCP: header values never leave the server; `verify_tls: false` is logged, journaled and flagged in the API.
 
-## [0.1.0.dev0] - 2026-10-25
+## [0.1.0.dev0] - 2026-10-25 (development snapshot)
 ### Added
 - Core: configuration in the database, admin account and API keys, LLM providers with routes, failover, key rotation and budgets, agent loop with memory, skills and built-in tools.
 - Secrets in OpenBao (Transit) or an encrypted local file.

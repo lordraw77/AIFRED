@@ -72,7 +72,7 @@ Section numbers below are those of the specification as it was reviewed. Section
 | 2 | LLM: SSE client, `<think>` filter, providers and models, route walker with failover, fake LLM | done |
 | 3 | Agent: loop, system prompt, memory, skills, tool registry, built-in toolsets with security tests | done |
 | 3b | Local knowledge base, step one (specs 9.4): migration for the `rag_*` tables, chunker, embedding client with retry and budgets, per-collection embedding model and test, memory cache with block-scan fallback, ingestion worker, hybrid search, `knowledge_search`/`knowledge_sources`, admin API, fake `/v1/embeddings` in the tests. The dashboard page comes with phase 6, the `/kb` commands with phase 4 | done |
-| 3c | Local knowledge base, step two (specs 9.4, ADR-004): sandboxed parser process, PDF with page numbers, docx/xlsx/pptx/odt/ods/odp, JPG/PNG/WebP and scanned pages through the vision route, metadata stripping, vision model test, daily limit, hostile-file tests | todo |
+| 3c | Local knowledge base, step two (specs 9.4, ADR-004): sandboxed parser process, PDF with page numbers, docx/xlsx/pptx/odt/ods/odp, JPG/PNG/WebP and scanned pages through the vision route, metadata stripping, vision model test, daily limit, hostile-file tests | done |
 | 4 | Gateways: `/v1` API, CLI, Telegram, shared slash commands, web chat endpoint; `/approve` and `/reject` | done |
 | 5 | MCP client and fake MCP server (both protocol generations, TLS): migration 4, `mcp_client.py`, `mcp.py`, `/api/mcp/*`, `/mcp` command, `tests/fake_mcp.py`. `/mcp add` and the *What is this for?* field come with phase 8, the dashboard page with phase 6 | done |
 | 6 | Dashboard: login, first-run guidance, Chat, Sessions, Memory, Skills, Knowledge, Tools, MCP, Models, Journey, Logs, Config, API keys, Account, System; static serving and every endpoint they need. The Instructions editors belong to phase 8 | done |
@@ -175,9 +175,9 @@ Still open:
 
 | Id | Question | Recommendation |
 | --- | --- | --- |
-| D9 | Add `pypdf` and `pypdfium2` (ADR-004)? | Yes. `pypdf` is pure Python; `pypdfium2` is needed only for scanned PDFs and can be dropped, in which case scans are reported as "needs OCR". Check wheel sizes and arm64 availability first `[VERIFY]` |
-| D10 | Defaults of the vision route: the name `vision`, a daily limit of 200 images, no default provider | Keep. Put a local vision model first and any paid provider (for example Gemini) last |
-| D11 | Which vision-capable model? | Same approach as D7: the user picks one; the vision test in the model editor checks that it works |
+| D9 | Add `pypdf` and `pypdfium2` (ADR-004)? | **Resolved (26 Oct 2026): yes, both.**  `pypdf` is pure Python; `pypdfium2` is needed only for scanned PDFs and can be dropped, in which case scans are reported as "needs OCR". Check wheel sizes and arm64 availability first `[VERIFY]` |
+| D10 | Defaults of the vision route: the name `vision`, a daily limit of 200 images, no default provider | **Resolved: keep (limit 200, no default provider).**  Put a local vision model first and any paid provider (for example Gemini) last |
+| D11 | Which vision-capable model? | **Resolved: a model on NVIDIA first, the local Ollama model (`qwen3.5:4b`, which declares the `vision` capability) as fallback; both are chosen on the Models page and must pass Test vision.** Same approach as D7: the user picks one; the vision test in the model editor checks that it works |
 
 ### Plan for phase 3b (step one)
 
@@ -221,7 +221,7 @@ Legacy Office formats, a local OCR engine, image and audio embeddings, reranking
 
   Direct probe of `nomic-embed-text`: related sentences scored 0.95, an unrelated one 0.34. No model is recommended by the specification (D7); these are data for the user's choice. `all-minilm` was not run (English-only).
 - **Defects found while building or checking:** a malformed embeddings answer raised an unhandled exception instead of a clean error; function words (`la`, `l`, `how`, `I`) in the keyword query outranked real matches in a small corpus (now filtered; identifiers are kept); a cold model load exceeded a 120 s request timeout (now `min(provider total, max(2 × first-token, 60 s))`, and a timeout is retried, which is what rescued the first indexing run on `bge-m3`); the first versions of two tests did not test what they claimed (a NaN the fake server could not send, a forced cache that left no trace).
-- **Deviations from the written design, recorded in specs section 17:** staleness is tracked per document, not per collection; the upload is a raw request body, not multipart; models carry a `kind`.
+- **Deviations from the written design, recorded in specs 9.4 (implementation details):** staleness is tracked per document, not per collection; the upload is a raw request body, not multipart; models carry a `kind`.
 - **Known limit:** a question like "what happens when the power fails" can still rank the wrong document first when the model is weak on it (seen with `bge-m3` on the Italian phrasing); the hybrid result had the right document in the top three. This is what the golden-question set and the roadmap's reranking item are for.
 - **Not done in this step:** the dashboard page (phase 6), the `/kb` commands (phase 4), PDF/Office/images (phase 3c, awaiting D9 to D11).
 
