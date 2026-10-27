@@ -38,6 +38,7 @@ class ToolCall:
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
     id: str | None = "call_abc123xyz"
+    usage: tuple[int, int] = (12, 7)
 
 
 @dataclass
@@ -279,7 +280,7 @@ class FakeLLM:
             yield _chunk({"tool_calls": [{"index": 0, "function": {"arguments": args[:half]}}]})
             yield _chunk({"tool_calls": [{"index": 0, "function": {"arguments": args[half:]}}]})
             yield _chunk({}, "tool_calls")
-            yield _sse({"choices": [], "usage": {"prompt_tokens": 12, "completion_tokens": 7}})
+            yield _sse({"choices": [], "usage": {"prompt_tokens": step.usage[0], "completion_tokens": step.usage[1]}})
             yield _sse(b"[DONE]")
             return
         assert isinstance(step, Text)

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from aifred.instructions import InstructionError
 from aifred.memory import MemoryError_
 from aifred.scanner import scan
+from aifred.scheduler import SchedulerError
 from aifred.skills import Skill, SkillError
 
 if TYPE_CHECKING:
@@ -88,6 +89,31 @@ def apply_skill(services: Services, payload: dict[str, Any], session_id: str | N
     return f"Skill {skill.name!r} {'updated' if previous else 'created'}."
 
 
+def apply_schedule(services: Services, payload: dict[str, Any]) -> str:
+    """Create, change or remove a scheduled task the admin approved (the prompt is screened again).
+
+    Raises:
+        WriteError: If the task is now refused.
+    """
+    sched, name, action = services.scheduler, payload["name"], payload["action"]
+    try:
+        if payload.get("prompt"):
+            sched.screen(payload["prompt"])
+        if action == "create":
+            sched.create(name, payload["expression"], payload["prompt"], payload.get("deliver_chat"), created_by="model")
+            return f"Task {name!r} created; next run {sched.describe(sched.get(name))['next_run_text']}."
+        if action == "update":
+            sched.update(name, expression=payload.get("expression"), prompt=payload.get("prompt"))
+            services.store.journal_add("schedule", "update", name, None, "applied", {"name": name})
+            return f"Task {name!r} updated."
+        if action == "remove":
+            sched.remove(name)
+            return f"Task {name!r} removed."
+    except SchedulerError as exc:
+        raise WriteError(str(exc)) from None
+    raise WriteError(f"unknown schedule action {action!r}")
+
+
 def apply_pending(services: Services, write_id: int) -> str:
     """Apply a queued write after the admin approved it (the scanner runs again).
 
@@ -114,6 +140,8 @@ def apply_pending(services: Services, write_id: int) -> str:
         except InstructionError as exc:
             raise WriteError(str(exc)) from None
         message = f"Instruction for {payload['scope']} saved."
+    elif kind == "schedule":
+        message = apply_schedule(services, payload)
     else:
         raise WriteError(f"cannot apply a write of kind {kind!r}")
     services.store.pending_decide(write_id, "approved")
@@ -192,9 +220,11 @@ def describe_pending(row: dict[str, Any]) -> str:
         what = f"instruction for {p.get('scope')}: {p.get('text', '')[:100]}" + (f" (why: {p['reason'][:80]})" if p.get("reason") else "")
     elif row["kind"] == "memory":
         what = f"memory {p.get('action')} ({p.get('target', 'memory')}): {(p.get('content') or p.get('match') or '')[:100]}"
+    elif row["kind"] == "schedule":
+        what = f"task {p.get('action')} {p.get('name')}" + (f" [{p['expression']}]" if p.get("expression") else "") + (f": {p['prompt'][:100]}" if p.get("prompt") else "")
     else:
         what = f"skill {p.get('name')}: {p.get('description', '')[:100]}"
     return f"#{row['id']} {what}"
 
 
-__all__ = ["WriteError", "apply_memory", "apply_pending", "apply_skill", "approval_required", "describe_pending", "queue_write", "reject_pending", "screen", "undo_entry"]
+__all__ = ["WriteError", "apply_memory", "apply_schedule", "apply_pending", "apply_skill", "approval_required", "describe_pending", "queue_write", "reject_pending", "screen", "undo_entry"]

@@ -7,6 +7,7 @@ function describePending(row) {
   const p = row.payload;
   if (row.kind === "instruction") return `instruction for ${p.scope}: ${p.text}${p.reason ? ` (why: ${p.reason})` : ""}`;
   if (row.kind === "memory") return `memory ${p.action} (${p.target || "memory"}): ${p.content || p.match || ""}`;
+  if (row.kind === "schedule") return `task ${p.action} ${p.name}${p.expression ? ` [${p.expression}]` : ""}${p.prompt ? `: ${p.prompt}` : ""}${p.deliver_chat ? ` → Telegram ${p.deliver_chat}` : ""}`;
   return `skill ${p.name}: ${p.description || ""}`;
 }
 

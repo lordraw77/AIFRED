@@ -64,6 +64,34 @@ def split_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
     return parts
 
 
+async def notify(services: Services, chat_id: int, text: str) -> None:
+    """Send a message on the admin's behalf (scheduled tasks), independent of the polling loop.
+
+    Only chats on ``TELEGRAM_ALLOWED_IDS`` are served, so an open bot can never be used to message strangers.
+
+    Raises:
+        TelegramError: If the chat is not allowed, no token is set or Telegram refused the message.
+    """
+    cfg = services.config
+    if chat_id not in cfg.get("TELEGRAM_ALLOWED_IDS"):
+        raise TelegramError(f"chat {chat_id} is not in TELEGRAM_ALLOWED_IDS")
+    try:
+        token = await asyncio.to_thread(cfg.get, "TELEGRAM_TOKEN")
+    except VaultUnavailable as exc:
+        raise TelegramError(f"the secret store is unavailable ({exc})") from None
+    if not token:
+        raise TelegramError("no Telegram token is configured")
+    base = str(cfg.get("TELEGRAM_API_BASE")).rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        for piece in split_message(text):
+            try:
+                response = await client.post(f"{base}/bot{token}/sendMessage", json={"chat_id": chat_id, "text": piece})
+            except httpx.HTTPError as exc:
+                raise TelegramError(f"{type(exc).__name__}: {exc}".replace(token, "***")[:200]) from None
+            if response.status_code != 200:
+                raise TelegramError(f"Telegram answered HTTP {response.status_code}")
+
+
 class TelegramGateway:
     """Polls Telegram and answers messages through the agent.
 

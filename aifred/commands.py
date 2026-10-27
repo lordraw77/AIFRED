@@ -17,6 +17,9 @@ from aifred.rag import RagError
 from aifred.router import RouteError
 from aifred.instructions import InstructionError, first_sentence
 from aifred.mcp import McpConfigError
+from aifred.agents import AgentError
+from aifred.scheduler import SchedulerError, chat_of_session
+from aifred.tools.registry import ToolContext
 from aifred.writes import undo_entry, WriteError, apply_pending, describe_pending, reject_pending
 
 if TYPE_CHECKING:
@@ -91,7 +94,7 @@ class Commands:
         self._table: dict[str, Callable[[str, Context], Awaitable[str | Reply]]] = {
             "start": self._start, "help": self._help, "new": self._new, "sessions": self._sessions, "think": self._think,
             "model": self._model, "kb": self._kb, "pending": self._pending, "approve": self._approve, "reject": self._reject,
-            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "quit": self._quit,
+            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "cron": self._cron, "agent": self._agent, "agents": self._agents, "quit": self._quit,
         }
 
     @staticmethod
@@ -129,7 +132,9 @@ class Commands:
             "model": "[route|provider/model|auto] show or choose the model route", "kb": "[scan|search <query>] the knowledge base",
             "mcp": "[reload] MCP servers and their state", "refine": "review this conversation now and save what is worth keeping",
             "journey": "[delete <id>] what I learned; undo an entry",
-            "instructions": "[reload|<name>] what each tool group is for", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
+            "instructions": "[reload|<name>] what each tool group is for",
+            "agent": "<name> <task> hand a task to a sub-agent", "agents": "the sub-agents you can use",
+            "cron": "[add <name> | <schedule> | <prompt>|pause|resume|run|remove <name>] scheduled tasks", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
             "quit": "leave the CLI",
         }
         return "Commands:\n" + "\n".join(f"/{n} - {info[n]}" for n in self.available(ctx))
@@ -304,6 +309,60 @@ class Commands:
         if not rows:
             return "Nothing learned yet."
         return "\n".join(f"#{r['id']} {time.strftime('%Y-%m-%d %H:%M', time.localtime(r['ts']))} {r['kind']}/{r['action']} [{r['status']}] {r['summary'][:100]}" for r in rows)
+
+    async def _cron(self, args: str, ctx: Context) -> str:
+        sched, store = self._s.scheduler, self._s.store
+        verb, _, rest = args.partition(" ")
+        verb, rest = verb.lower(), rest.strip()
+        try:
+            if not verb or verb == "list":
+                rows = await asyncio.to_thread(store.schedule_list)
+                if not rows:
+                    return "No scheduled tasks. Add one with /cron add <name> | <schedule> | <prompt>, for example\n/cron add morning | 0 8 * * * | Summarise the news about Python"
+                return "\n".join(
+                    f"{'on ' if r['enabled'] else 'off'} {r['name']}  [{r['expression']}]  next {sched.describe(r)['next_run_text'] or '-'}  last {r['last_status'] or '-'}"
+                    for r in rows
+                )
+            if verb == "add":
+                parts = [p.strip() for p in rest.split("|", 2)]
+                if len(parts) != 3 or not all(parts):
+                    return "Usage: /cron add <name> | <schedule> | <prompt>   (schedule: '0 8 * * *', @daily or 'every 30m')"
+                allowed = self._s.config.get("TELEGRAM_ALLOWED_IDS")
+                chat = chat_of_session(ctx.session_id) if ctx.source == "telegram" else (allowed[0] if allowed else None)
+                row = await asyncio.to_thread(sched.create, parts[0], parts[1], parts[2], chat if chat in allowed else None)
+                where = "delivered on Telegram" if row["deliver_chat"] is not None else "results are kept on the Schedules page (no Telegram chat to deliver to)"
+                return f"Task {row['name']!r} created, next run {sched.describe(row)['next_run_text']}; {where}."
+            if not rest:
+                return f"Usage: /cron {verb} <name>"
+            name = rest.lower()
+            if verb in ("pause", "resume"):
+                await asyncio.to_thread(sched.set_enabled, name, verb == "resume")
+                return f"Task {name!r} {'resumed' if verb == 'resume' else 'paused'}."
+            if verb == "run":
+                await asyncio.to_thread(sched.run_now, name)
+                return f"Task {name!r} started; I will deliver the result when it finishes."
+            if verb in ("remove", "delete"):
+                await asyncio.to_thread(sched.remove, name)
+                return f"Task {name!r} removed."
+        except SchedulerError as exc:
+            return f"Error: {exc}"
+        return "Usage: /cron [list | add <name> | <schedule> | <prompt> | pause|resume|run|remove <name>]"
+
+    async def _agents(self, args: str, ctx: Context) -> str:
+        rows = await asyncio.to_thread(self._s.store.agent_list)
+        if not rows:
+            return "No sub-agents are defined. Add them on the Agents page of the dashboard."
+        return "\n".join(f"{'on ' if r['enabled'] else 'off'} {r['name']}  [{r['route']}]  {r['description']}" for r in rows) + "\nUse /agent <name> <task>."
+
+    async def _agent(self, args: str, ctx: Context) -> str:
+        name, _, task = args.partition(" ")
+        if not name or not task.strip():
+            return "Usage: /agent <name> <task>   (see /agents)"
+        try:
+            result = await self._s.agents.run(name.lower(), task, "", ToolContext(self._s, ctx.session_id, ctx.source, ctx.restricted))
+        except AgentError as exc:
+            return f"Error: {exc}"
+        return result["output"] if result["status"] == "ok" else f"Error: {result['error']}"
 
     async def _pending(self, args: str, ctx: Context) -> str:
         rows = await asyncio.to_thread(self._s.store.pending_list)

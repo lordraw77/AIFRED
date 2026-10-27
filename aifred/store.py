@@ -18,10 +18,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from aifred.store_agents import AgentStoreMixin
 from aifred.store_instructions import InstructionStoreMixin
 from aifred.store_llm import LLMStoreMixin
 from aifred.store_mcp import McpStoreMixin
 from aifred.store_rag import RagStoreMixin
+from aifred.store_sched import SchedulerStoreMixin
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +349,73 @@ _MIGRATIONS: list[str] = [
         PRIMARY KEY (sha256, prompt)
     );
     """,
+    # 7: scheduled tasks (docs/specs.md section 14)
+    """
+    CREATE TABLE schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        expression TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        deliver_chat INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL DEFAULT 'user',
+        created REAL NOT NULL,
+        next_run REAL,
+        last_run REAL,
+        last_status TEXT NOT NULL DEFAULT '',
+        run_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_schedules_due ON schedules(enabled, next_run);
+
+    CREATE TABLE schedule_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        started REAL NOT NULL,
+        finished REAL,
+        status TEXT NOT NULL DEFAULT 'running',
+        session_id TEXT NOT NULL DEFAULT '',
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        delivered INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_schedule_runs ON schedule_runs(schedule_id, started);
+    """,
+    # 8: sub-agents (docs/specs.md section 14.1)
+    """
+    CREATE TABLE agents (
+        name TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        role TEXT NOT NULL,
+        route TEXT NOT NULL DEFAULT 'default',
+        skills TEXT NOT NULL DEFAULT '[]',
+        toolsets TEXT NOT NULL DEFAULT '[]',
+        memory TEXT NOT NULL DEFAULT 'none',
+        max_iterations INTEGER,
+        timeout INTEGER,
+        token_budget INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        created REAL NOT NULL,
+        updated REAL NOT NULL
+    );
+
+    CREATE TABLE agent_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent TEXT NOT NULL,
+        parent_session TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL,
+        task TEXT NOT NULL,
+        started REAL NOT NULL,
+        finished REAL,
+        status TEXT NOT NULL DEFAULT 'running',
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        tokens INTEGER NOT NULL DEFAULT 0,
+        model TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX idx_agent_runs ON agent_runs(agent, id);
+
+    ALTER TABLE sessions ADD COLUMN parent_id TEXT;
+    """,
 ]
 
 
@@ -357,7 +426,7 @@ def _like_prefix(prefix: str | None) -> str:
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin):
+class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, SchedulerStoreMixin, AgentStoreMixin):
     """Thread-safe access to the AIFRED database.
 
     Args:
