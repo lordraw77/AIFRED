@@ -216,6 +216,15 @@ async def test_model(provider_id: int, model_id: str, _: AdminDep, services: Ser
         raise _unprocessable(exc) from None
 
 
+@router.post("/api/providers/{provider_id}/models/{model_id:path}/vision-test")
+async def test_vision_model(provider_id: int, model_id: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Show the model a picture of a random number; only models that read it can join the vision route."""
+    try:
+        return await services.providers.test_vision_model(provider_id, model_id)
+    except ProviderError as exc:
+        raise _unprocessable(exc) from None
+
+
 @router.post("/api/providers/{provider_id}/models/{model_id:path}/embedding-test")
 async def test_embedding_model(provider_id: int, model_id: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Embed sample sentences; the model becomes an embedding model and the result is recorded."""
@@ -295,7 +304,8 @@ def delete_route(name: str, _: AdminDep, services: ServicesDep) -> Ok:
 async def test_route(name: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Run a one-word request through the route and report which entry answered."""
     try:
-        entries = services.llm.resolve(name, name)
+        reserved = name == services.config.get("RAG_VISION_ROUTE")
+        entries = services.llm.route_entries(name) if reserved else services.llm.resolve(name, name)
         result, entry, notices = await services.llm.complete(
             entries, [{"role": "user", "content": "Reply with the single word OK."}], route=name, source="test"
         )

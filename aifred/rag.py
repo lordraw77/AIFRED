@@ -8,6 +8,7 @@ a worker in the server process and commands in the CLI process share the same st
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -23,9 +24,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from aifred.chunking import FormatError, chunk_text, join_overlapping, load_document, supported
+from aifred.chunking import Chunk, FormatError, chunk_blocks, chunk_text, join_overlapping, load_document, supported
 from aifred.embeddings import EmbeddingClient, EmbeddingError, from_blob, to_blob
 from aifred.providers import SLUG_RE, ProviderError, embed_target
+from aifred.rag_parse import magic_kind
+from aifred.rag_sandbox import SandboxError, run_parser
+from aifred.rag_vision import VisionLimit, VisionOutage, VisionReader, VisionUnavailable, day_start
 from aifred.scanner import scan
 from aifred.store import Store
 
@@ -41,6 +45,17 @@ RRF_K = 60
 HIT_CHARS = 1500
 MAX_QUERY_TERMS = 32
 SCAN_BLOCK = 2048
+BINARY_GROUPS = {
+    ".pdf": "pdf", ".docx": "office", ".xlsx": "office", ".pptx": "office", ".odt": "office", ".ods": "office", ".odp": "office",
+    ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
+}
+CONVERT = {
+    ".doc": "legacy .doc files are not supported: save the document as .docx or PDF",
+    ".xls": "legacy .xls files are not supported: save the spreadsheet as .xlsx",
+    ".ppt": "legacy .ppt files are not supported: save the presentation as .pptx or PDF",
+    ".gif": "convert the image to jpg, png or webp", ".bmp": "convert the image to jpg, png or webp",
+    ".tif": "convert the image to jpg, png or webp", ".tiff": "convert the image to jpg, png or webp",
+}
 RETRY_BASE = 60.0
 RETRY_MAX = 900.0
 CONTENT_TYPE_EXTENSIONS = {
@@ -225,6 +240,23 @@ def why_unsupported(name: str) -> str:
     return f"unsupported file type {PurePosixPath(name).suffix or name!r}"
 
 
+def _ranges(pages: list[int]) -> str:
+    """``[1, 2, 3, 7]`` as ``1-3, 7``."""
+    out: list[str] = []
+    start = prev = None
+    for page in sorted(pages):
+        if start is None:
+            start = prev = page
+        elif page == prev + 1:
+            prev = page
+        else:
+            out.append(f"{start}" if start == prev else f"{start}-{prev}")
+            start = prev = page
+    if start is not None:
+        out.append(f"{start}" if start == prev else f"{start}-{prev}")
+    return ", ".join(out)
+
+
 def _safe_name(name: str) -> str:
     """A document name from user input: no directories, no control characters."""
     base = PurePosixPath(name.replace("\\", "/")).name
@@ -260,6 +292,7 @@ class RagService:
         self._clock = clock
         self.embedder = embedder or EmbeddingClient()
         self.cache = VectorCache()
+        self.vision = VisionReader(store, config, llm, clock)
         self.folder = data_dir / "workspace" / "knowledge"
         self.files = data_dir / "knowledge" / "files"
         self._wake = threading.Event()
@@ -387,10 +420,45 @@ class RagService:
             raise RagError(f"unknown collection {name!r}")
         return row
 
-    def _check_size(self, size: int) -> None:
-        limit = int(self._config.get("RAG_MAX_DOCUMENT_BYTES"))
+    def accepts(self, name: str, head: bytes = b"") -> str:
+        """Which kind of document a file is, decided by its first bytes first and by its name only for text.
+
+        Args:
+            name: File name.
+            head: The first bytes of the content (at least 12 when available).
+
+        Returns:
+            ``text``, ``pdf``, ``office`` or ``image``.
+
+        Raises:
+            RagError: If the file is of a kind the knowledge base does not read, its content does not match its
+                name, or that format is turned off in ``RAG_FORMATS``.
+        """
+        ext = PurePosixPath(name).suffix.lower()
+        if ext in CONVERT:
+            raise RagError(CONVERT[ext])
+        magic = magic_kind(head)
+        if magic in ("pdf", "image"):
+            group = magic
+        elif magic == "zip" and ext in BINARY_GROUPS and BINARY_GROUPS[ext] == "office":
+            group = "office"
+        elif magic == "zip":
+            raise RagError("archives are not supported; only Office and OpenDocument files are read")
+        elif ext in BINARY_GROUPS:
+            raise RagError(f"the content is not a valid {ext} file (it does not look like one)")
+        elif supported(name):
+            group = "text"
+        else:
+            raise RagError(why_unsupported(name))
+        if group not in self._config.get("RAG_FORMATS"):
+            raise RagError(f"{group} files are turned off (RAG_FORMATS)")
+        return group
+
+    def _check_size(self, size: int, group: str = "text") -> None:
+        key, label = ("RAG_MAX_IMAGE_BYTES", "image") if group == "image" else ("RAG_MAX_DOCUMENT_BYTES", "document")
+        limit = int(self._config.get(key))
         if size > limit:
-            raise RagError(f"the document is {size:,} bytes; the limit is {limit:,} (RAG_MAX_DOCUMENT_BYTES)")
+            raise RagError(f"the {label} is {size:,} bytes; the limit is {limit:,} ({key})")
 
     def add_document(self, collection: str, name: str, data: bytes, origin: str = "upload", source: str | None = None) -> dict[str, Any]:
         """Store an uploaded or downloaded document and queue it for indexing.
@@ -407,13 +475,12 @@ class RagService:
         """
         row = self._require_collection(collection)
         name = _safe_name(name)
-        self._check_size(len(data))
-        if not supported(name):
-            raise RagError(why_unsupported(name))
+        group = self.accepts(name, data[:16])
+        self._check_size(len(data), group)
         digest = _sha256(data)
         self._store_copy(digest, PurePosixPath(name).suffix.lower() or ".txt", data)
         doc_id, queued = self._store.rag_doc_upsert(
-            row["id"], source or name, origin, "text", PurePosixPath(name).stem, digest, len(data), force=False, retry_errors=True
+            row["id"], source or name, origin, group, PurePosixPath(name).stem, digest, len(data), force=False, retry_errors=True
         )
         if queued:
             self.wake()
@@ -511,17 +578,21 @@ class RagService:
                 if not inside:
                     summary["skipped"].append({"path": shown, "reason": "a symlink or a path outside the knowledge folder"})
                     continue
-                if not supported(path.name):
-                    summary["skipped"].append({"path": shown, "reason": why_unsupported(path.name)})
+                try:
+                    with path.open("rb") as handle:
+                        group = self.accepts(path.name, handle.read(16))
+                except (RagError, OSError) as exc:
+                    summary["skipped"].append({"path": shown, "reason": str(exc)})
                     continue
                 size = path.stat().st_size
-                if size > limit:
-                    summary["skipped"].append({"path": shown, "reason": f"larger than {limit:,} bytes"})
+                group_limit = int(self._config.get("RAG_MAX_IMAGE_BYTES")) if group == "image" else limit
+                if size > group_limit:
+                    summary["skipped"].append({"path": shown, "reason": f"larger than {group_limit:,} bytes"})
                     continue
                 keep.add(relative.as_posix())
                 digest = self._hash_file(path)
                 _, queued = self._store.rag_doc_upsert(
-                    row["id"], relative.as_posix(), "file", "text", path.stem, digest, size, retry_errors=False
+                    row["id"], relative.as_posix(), "file", group, path.stem, digest, size, retry_errors=False
                 )
                 summary["queued" if queued else "unchanged"] += 1
             summary["removed"] += self._store.rag_doc_remove_missing(row["id"], keep)
@@ -582,6 +653,18 @@ class RagService:
             return path.name, PurePosixPath(original).stem or original, path.read_bytes()
         raise RagError("the stored copy of this document is missing; add it again")
 
+    def original(self, doc_id: int) -> tuple[str, bytes]:
+        """The stored file of a document (its name and bytes), for the dashboard's thumbnail and download.
+
+        Raises:
+            RagError: If the document or its file is gone.
+        """
+        doc = self._store.rag_doc_get(doc_id)
+        if doc is None:
+            raise RagError(f"unknown document {doc_id}")
+        name, _, data = self._read_source(doc)
+        return name, data
+
     def _fail(self, doc: dict[str, Any], message: str) -> None:
         logger.warning("Document %s (%s): %s", doc["id"], doc["source"], message)
         self._store.rag_doc_set(doc["id"], status="error", error=message[:300])
@@ -593,17 +676,95 @@ class RagService:
             return
         try:
             name, fallback_title, data = self._read_source(doc)
-            self._check_size(len(data))
+            group = self.accepts(name, data[:16])
+            self._check_size(len(data), group)
+            if group != "text":
+                return self._index_binary(doc, collection, group, fallback_title, data)
             loaded = load_document(name, data, fallback_title)
         except (RagError, FormatError) as exc:
             return self._fail(doc, str(exc))
-        digest = _sha256(data)
         flagged = bool(scan(loaded.text))
         chunks = chunk_text(
             loaded.text, chunk_chars=int(cfg.get("RAG_CHUNK_CHARS")), overlap=int(cfg.get("RAG_CHUNK_OVERLAP")), csv=loaded.csv
         )
+        self._finish(doc, collection, chunks, title=loaded.title, flagged=flagged, kind="text", data=data)
+
+    def _sandbox(self, command: dict[str, Any], data: bytes) -> dict[str, Any]:
+        """Run a parser command in the child process; failures become :class:`RagError` with a message for the admin."""
+        cfg = self._config
+        command = {**command, "limits": {"max_pages": int(cfg.get("RAG_MAX_PAGES")), "ocr_min_chars": int(cfg.get("RAG_OCR_MIN_CHARS"))}}
+        try:
+            result = run_parser(
+                command, data, timeout=float(cfg.get("RAG_PARSE_TIMEOUT")), memory_mb=int(cfg.get("RAG_PARSE_MEMORY_MB")),
+                max_output=2 * int(cfg.get("RAG_MAX_IMAGE_BYTES")) + 4_000_000,
+            )
+        except SandboxError as exc:
+            raise RagError(str(exc)) from None
+        if result.get("error"):
+            raise RagError(str(result["error"]))
+        return result
+
+    def _read_image(self, image_b64: str, mime: str) -> str:
+        """Text of an image from the vision model (raises the vision exceptions)."""
+        return self.vision.read(base64.b64decode(image_b64), mime)
+
+    def _index_binary(self, doc: dict[str, Any], collection: dict[str, Any], group: str, fallback_title: str, data: bytes) -> None:
+        """PDF, Office, OpenDocument and image files: parse in the sandbox, read images with the vision model, then as text."""
+        parsed = self._sandbox({"cmd": "parse"}, data)
+        blocks: list[dict[str, Any]] = list(parsed.get("blocks") or [])
+        status, notice, retry_at = "ready", "", None
+        try:
+            if parsed.get("kind") == "image":
+                text = self._read_image(parsed["image_b64"], parsed["mime"])
+                blocks = [{"page": None, "heading": "", "text": text, "vision": True}]
+            else:
+                skipped: list[int] = []
+                reasons = ""
+                for index, page in enumerate(parsed.get("scan_pages") or []):
+                    try:
+                        rendered = self._sandbox({"cmd": "render", "page": page}, data)
+                        text = self._read_image(rendered["image_b64"], rendered["mime"])
+                    except VisionLimit as exc:
+                        skipped = list(parsed["scan_pages"][index:])
+                        reasons = f"{exc}; it continues tomorrow"
+                        retry_at = day_start(self._clock()) + 86_400 + 60
+                        break
+                    except VisionUnavailable as exc:
+                        skipped = list(parsed["scan_pages"][index:])
+                        reasons = str(exc)
+                        break
+                    except RagError as exc:  # one page that cannot be rendered does not lose the others
+                        skipped.append(page)
+                        reasons = reasons or str(exc)
+                        continue
+                    blocks.append({"page": page, "heading": "", "text": text, "vision": True})
+                if skipped:
+                    status, notice = "partial", f"pages {_ranges(skipped)} were not read: {reasons}"
+                blocks.sort(key=lambda b: (b.get("page") or 0))
+                if parsed.get("truncated"):
+                    status, notice = "partial", (notice + "; " if notice else "") + f"only the first {int(self._config.get('RAG_MAX_PAGES'))} pages are read (RAG_MAX_PAGES)"
+        except VisionUnavailable as exc:
+            return self._fail(doc, str(exc))
+        except VisionLimit as exc:
+            return self._fail(doc, f"{exc}; add the image again tomorrow")
+        except VisionOutage as exc:
+            return self._postpone(doc, str(exc), exc.wait)
+        except RagError as exc:
+            return self._fail(doc, str(exc))
+        flagged = bool(scan("\n".join(b["text"] for b in blocks)))
+        cfg = self._config
+        chunks = chunk_blocks(blocks, chunk_chars=int(cfg.get("RAG_CHUNK_CHARS")), overlap=int(cfg.get("RAG_CHUNK_OVERLAP")))
+        self._finish(doc, collection, chunks, title=parsed.get("title") or fallback_title, flagged=flagged, kind=group, data=data, status=status, error=notice, retry_at=retry_at)
+
+    def _finish(
+        self, doc: dict[str, Any], collection: dict[str, Any], chunks: list[Chunk], *, title: str, flagged: bool, kind: str, data: bytes,
+        status: str = "ready", error: str = "", retry_at: float | None = None,
+    ) -> None:
+        """Embed what changed and swap the document's chunks in."""
+        cfg = self._config
+        digest = _sha256(data)
         if not chunks:
-            return self._fail(doc, "the document has no searchable text")
+            return self._fail(doc, "the document has no searchable text" + (f" ({error})" if error else ""))
         if self._store.rag_chunk_total() - int(doc["chunks"]) + len(chunks) > int(cfg.get("RAG_MAX_CHUNKS")):
             return self._fail(doc, f"the knowledge base would exceed RAG_MAX_CHUNKS ({int(cfg.get('RAG_MAX_CHUNKS')):,})")
 
@@ -630,13 +791,13 @@ class RagService:
             dim = len(next(iter(vectors.values()))) // 4
         for chunk, sha in zip(chunks, shas, strict=True):
             rows.append(
-                {"ord": chunk.ord, "heading": chunk.heading, "page": None, "vision": 0, "text": chunk.text, "text_sha": sha,
+                {"ord": chunk.ord, "heading": chunk.heading, "page": chunk.page, "vision": int(chunk.vision), "text": chunk.text, "text_sha": sha,
                  "embedding": vectors.get(sha) if tag else None}
             )
         self._store.rag_chunks_swap(
             doc["id"], rows,
-            {"title": loaded.title, "chunks": len(rows), "status": "ready", "error": "", "flagged": int(flagged), "embed_tag": tag,
-             "dim": dim, "attempts": 0, "retry_at": None, "sha256": digest, "size": len(data), "kind": "text"},
+            {"title": title, "chunks": len(rows), "status": status, "error": error[:300], "flagged": int(flagged), "embed_tag": tag,
+             "dim": dim, "attempts": 0, "retry_at": retry_at, "sha256": digest, "size": len(data), "kind": kind},
         )
 
     def _postpone(self, doc: dict[str, Any], message: str, wait: float | None) -> None:
@@ -811,7 +972,7 @@ class RagService:
             chunk_ids.sort(key=lambda c: info[c]["ord"])
             current = [chunk_ids[0]]
             for cid in chunk_ids[1:]:
-                if info[cid]["ord"] == info[current[-1]]["ord"] + 1:
+                if info[cid]["ord"] == info[current[-1]]["ord"] + 1 and info[cid]["page"] == info[current[-1]]["page"]:
                     current.append(cid)
                 else:
                     groups.append(current)
@@ -840,6 +1001,7 @@ class RagService:
         return {
             "enabled": self.enabled, **self._store.rag_status(), "cache_bytes": self.cache.size_bytes(),
             "embedding": {"provider": self._config.get("RAG_EMBED_PROVIDER"), "model": self._config.get("RAG_EMBED_MODEL")},
+            "vision": self.vision.status(), "formats": list(self._config.get("RAG_FORMATS")),
         }
 
 

@@ -170,13 +170,24 @@ class RagStoreMixin:
         with self._tx() as c:
             row = c.execute(
                 "SELECT id FROM rag_documents WHERE status = 'queued' OR (status = 'waiting' AND COALESCE(retry_at, 0) <= ?) "
+                "OR (status = 'partial' AND retry_at IS NOT NULL AND retry_at <= ?) "
                 "ORDER BY CASE status WHEN 'queued' THEN 0 ELSE 1 END, updated, id LIMIT 1",
-                (now,),
+                (now, now),
             ).fetchone()
             if row is None:
                 return None
             c.execute("UPDATE rag_documents SET status = 'indexing', updated = ? WHERE id = ?", (now, row[0]))
         return self.rag_doc_get(int(row[0]))
+
+    def rag_vision_cached(self, sha256: str, prompt: str) -> str | None:
+        """The description of an image already read with this prompt version."""
+        row = self._one("SELECT text FROM rag_vision_cache WHERE sha256 = ? AND prompt = ?", (sha256, prompt))
+        return str(row["text"]) if row else None
+
+    def rag_vision_put(self, sha256: str, prompt: str, text: str, model: str) -> None:
+        """Remember a description so re-indexing does not pay for it again."""
+        with self._tx() as c:
+            c.execute("INSERT OR REPLACE INTO rag_vision_cache (sha256, prompt, text, model, created) VALUES (?, ?, ?, ?, ?)", (sha256, prompt, text, model, time.time()))
 
     def rag_recover_indexing(self) -> int:
         """After a crash, documents left ``indexing`` go back to the queue."""

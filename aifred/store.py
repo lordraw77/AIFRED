@@ -332,6 +332,21 @@ _MIGRATIONS: list[str] = [
         updated REAL NOT NULL
     );
     """,
+    # 6: vision model tests and the cache of image descriptions (knowledge base, second step)
+    """
+    INSERT OR IGNORE INTO routes (name, created) VALUES ('vision', 0);
+    ALTER TABLE models ADD COLUMN vision_test_at REAL;
+    ALTER TABLE models ADD COLUMN vision_error TEXT NOT NULL DEFAULT '';
+
+    CREATE TABLE rag_vision_cache (
+        sha256 TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        text TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '',
+        created REAL NOT NULL,
+        PRIMARY KEY (sha256, prompt)
+    );
+    """,
 ]
 
 

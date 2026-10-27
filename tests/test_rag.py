@@ -166,8 +166,10 @@ def test_limits_and_unreadable_files(kb: KB) -> None:
     kb.rag.create_collection("c")
     with pytest.raises(RagError, match="limit is 1,024"):
         kb.rag.add_document("c", "big.md", b"x" * 2000)
-    with pytest.raises(RagError, match="second step"):
-        kb.rag.add_document("c", "manual.pdf", b"%PDF-1.4")
+    with pytest.raises(RagError, match="legacy .doc"):
+        kb.rag.add_document("c", "old.doc", b"x")
+    with pytest.raises(RagError, match="not a valid .pdf"):
+        kb.rag.add_document("c", "manual.pdf", b"just text with a pdf name")
     with pytest.raises(RagError, match="unsupported"):
         kb.rag.add_document("c", "tool.exe", b"MZ")
     with pytest.raises(RagError, match="unknown collection"):
@@ -429,7 +431,7 @@ def test_scan_synchronises_the_knowledge_folder(kb: KB, tmp_path: Path) -> None:
     (root / "homelab" / "proxmox.md").write_text(PROXMOX)
     (root / "homelab" / "sub" / "network.md").write_text(NETWORK)
     (root / "homelab" / ".hidden.md").write_text("# hidden\n\nnot indexed")
-    (root / "homelab" / "photo.jpg").write_bytes(b"\xff\xd8\xff")
+    (root / "homelab" / "photo.jpg").write_bytes(b"not really a photograph")
     (root / "homelab" / "image.exe").write_bytes(b"MZ")
     (root / "stray.md").write_text("# stray\n\nfile outside any collection")
     (root / "Bad Name").mkdir()
@@ -445,7 +447,7 @@ def test_scan_synchronises_the_knowledge_folder(kb: KB, tmp_path: Path) -> None:
     reasons = {s["path"]: s["reason"] for s in summary["skipped"]}
     assert "sub-folder" in reasons["stray.md"] and "not a valid collection" in reasons["Bad Name"]
     assert "symlink" in reasons["homelab/link.md"]
-    assert "second step" in reasons["homelab/photo.jpg"] and "unsupported file type '.exe'" in reasons["homelab/image.exe"]
+    assert "not a valid .jpg" in reasons["homelab/photo.jpg"] and "unsupported file type '.exe'" in reasons["homelab/image.exe"]
     assert "homelab/.hidden.md" not in reasons
     assert not any("secret" in str(s) for s in summary["skipped"] if s["path"].startswith("linked"))
     kb.index()

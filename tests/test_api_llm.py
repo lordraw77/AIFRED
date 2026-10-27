@@ -137,7 +137,7 @@ def test_models_refresh_test_and_route_flow(admin: TestClient, fake_llm: Callabl
 
     route = admin.put("/api/routes/default", json={"entries": [{"provider": "lab", "model": "vendor/model-x"}]})
     assert route.status_code == 200 and route.json()["entries"][0]["context_window"] == 4096
-    assert [r["name"] for r in admin.get("/api/routes").json()] == ["default", "review"]
+    assert [r["name"] for r in admin.get("/api/routes").json()] == ["default", "review", "vision"]
     assert admin.get("/api/routes/nope").status_code == 404
 
     fake.queue(Text("OK"))

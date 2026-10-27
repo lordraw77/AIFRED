@@ -148,7 +148,7 @@ def _sse(data: Any) -> bytes:
 async def list_models(_: ApiKeyDep, services: ServicesDep) -> dict[str, Any]:
     """Routes and tested chat models, in OpenAI's list format."""
     def build() -> list[str]:
-        ids = list(services.store.route_names())
+        ids = [n for n in services.store.route_names() if n != services.config.get("RAG_VISION_ROUTE")]
         for provider in services.providers.list():
             ids += [f"{provider.slug}/{m['model_id']}" for m in services.providers.models(provider.id) if m["kind"] == "chat" and m["test_ok"]]
         return ids

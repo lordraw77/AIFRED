@@ -12,6 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
+from typing import Any
 
 from aifred.tools.web import html_to_text
 
@@ -44,11 +45,15 @@ class Chunk:
         ord: Position in the document, from 0.
         heading: Heading path of the section, for example ``Guide › Install``.
         text: The chunk body.
+        page: Page or slide number for PDF and presentations.
+        vision: Whether the text was read from an image by a vision model.
     """
 
     ord: int
     heading: str
     text: str
+    page: int | None = None
+    vision: bool = False
 
 
 @dataclass(frozen=True)
@@ -284,6 +289,28 @@ def chunk_text(text: str, *, chunk_chars: int = 1200, overlap: int = 150, csv: b
                 body = piece
         if body:
             emit(section.heading, f"{prefix}\n{body}" if prefix else body)
+    return out
+
+
+def chunk_blocks(blocks: list[dict[str, Any]], *, chunk_chars: int = 1200, overlap: int = 150) -> list[Chunk]:
+    """Chunk the blocks a parser produced, keeping each block's page (or slide) and whether a vision model read it.
+
+    Args:
+        blocks: Dicts with ``text`` and optionally ``page``, ``heading`` and ``vision``.
+        chunk_chars: Target maximum characters per chunk.
+        overlap: Characters repeated between consecutive chunks of one block.
+
+    Returns:
+        Chunks in order with consecutive ``ord`` values; a chunk never spans two blocks, so its page is exact.
+    """
+    out: list[Chunk] = []
+    for block in blocks:
+        text = normalise(str(block.get("text", "")))
+        if not text:
+            continue
+        for chunk in chunk_text(text, chunk_chars=chunk_chars, overlap=overlap):
+            heading = HEADING_SEPARATOR.join(part for part in (block.get("heading") or "", chunk.heading) if part)
+            out.append(Chunk(len(out), heading, chunk.text, block.get("page"), bool(block.get("vision"))))
     return out
 
 

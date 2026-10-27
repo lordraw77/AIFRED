@@ -2,6 +2,7 @@
 import { ago, attempt, badge, bytes, button, busy, clear, dangerButton, del, empty, field, get, h, number, panel, post, put, skeleton, state, toast } from "../core.js";
 
 const STATUS_KIND = { ready: "ok", queued: "", indexing: "warn", waiting: "warn", partial: "warn", error: "err" };
+const ACCEPT = ".md,.txt,.rst,.html,.json,.csv,.yaml,.yml,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.jpg,.jpeg,.png,.webp";
 
 export default {
   async render(root, ctx) {
@@ -34,7 +35,19 @@ export default {
           h("div", { class: "stat" }, h("div", { class: "value" }, number(st.chunks)), h("div", { class: "label" }, "Passages")),
           h("div", { class: "stat" }, h("div", { class: "value" }, bytes(st.cache_bytes)), h("div", { class: "label" }, "Vector cache")),
           Object.entries(st.documents || {}).map(([k, v]) => h("div", { class: "stat" }, h("div", { class: "value" }, String(v)), h("div", { class: "label" }, k)))),
+        visionBlock(st.vision),
         h("p", { class: "hint" }, e.model ? `Embedding model: ${e.provider} / ${e.model}. The text of your documents is sent to that provider to be embedded.` : "No embedding model chosen: search is keyword-only. Set RAG_EMBED_PROVIDER and RAG_EMBED_MODEL on the Config page."));
+    }
+
+    function visionBlock(v) {
+      const pct = v.daily_limit ? Math.min(100, Math.round((v.used_today / v.daily_limit) * 100)) : 0;
+      const bar = h("div", { class: "bar", role: "img", "aria-label": `${pct}% of today's limit` }, h("span", {}));
+      bar.firstChild.style.setProperty("--pct", String(pct));
+      return h("div", { class: "stack" },
+        h("div", { class: "row between" }, h("span", { class: "label" }, `Vision route: ${v.route}`),
+          h("span", { class: "mono" }, v.daily_limit ? `${v.used_today} / ${v.daily_limit} images today` : "vision is off (RAG_VISION_DAILY_LIMIT is 0)")),
+        v.daily_limit ? bar : null,
+        h("p", { class: "hint" }, v.models.length ? `Images and scanned pages are sent to: ${v.models.join(", ")} (first answers; the others are fallbacks).` : `No vision model yet: images and scanned pages cannot be read. Put a model that passed Test vision on the ${v.route} route (Models page). Nothing is sent anywhere until you do.`));
     }
 
     function collectionsPanel(collections) {
@@ -55,7 +68,7 @@ export default {
     function documentsPanel(collections, docs) {
       const pick = h("select", { "aria-label": "Collection", onchange: (e) => { collection = e.target.value; draw(); } }, h("option", { value: "" }, "All collections"), collections.map((c) => h("option", { value: c.name, selected: c.name === collection }, c.name)));
       const target = h("select", { "aria-label": "Add to" }, collections.map((c) => h("option", { value: c.name, selected: c.name === (collection || collections[0]?.name) }, c.name)));
-      const file = h("input", { type: "file", multiple: true, "aria-label": "Files to upload" });
+      const file = h("input", { type: "file", multiple: true, "aria-label": "Files to upload", accept: ACCEPT });
       const url = h("input", { type: "url", placeholder: "https://… page or document to download" });
       const upload = button("Upload", null, { primary: true, small: true });
       upload.onclick = busy(upload, async () => {
@@ -69,7 +82,8 @@ export default {
         file.value = ""; draw();
       });
       const rows = docs.map((d) => h("tr", {},
-        h("td", {}, h("div", {}, d.title || d.source), h("div", { class: "hint mono" }, `${d.collection} · ${d.source}`), d.error && h("div", { class: "hint" }, d.error)),
+        h("td", { class: "row" }, d.kind === "image" ? h("img", { class: "thumb", src: `/api/rag/documents/${d.id}/file`, alt: `Thumbnail of ${d.source}`, loading: "lazy" }) : null,
+          h("div", {}, h("div", {}, d.title || d.source), h("div", { class: "hint mono" }, `${d.collection} · ${d.source}`), d.error && h("div", { class: d.status === "error" ? "hint over" : "hint" }, d.error))),
         h("td", {}, badge(d.status, STATUS_KIND[d.status] || ""), d.flagged ? badge("flagged", "warn") : null), h("td", { class: "mono" }, d.kind), h("td", { class: "mono" }, String(d.chunks)), h("td", { class: "mono" }, bytes(d.size)), h("td", {}, ago(d.updated)),
         h("td", {}, dangerButton("Delete", async () => { if (await attempt(() => del(`/api/rag/documents/${d.id}`), "Document deleted")) draw(); }))));
       return panel("Documents", "memory",

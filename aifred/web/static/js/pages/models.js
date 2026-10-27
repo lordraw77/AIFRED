@@ -21,7 +21,8 @@ export default {
       const models = {};
       await Promise.all(providers.map(async (p) => { models[p.id] = await get(`/api/providers/${p.id}/models`); }));
       const usage = await get(`/api/usage?days=${days}`);
-      return { providers, presets, routes, health, models, usage };
+      const rag = await get("/api/rag/status").catch(() => null);
+      return { providers, presets, routes, health, models, usage, visionRoute: rag ? rag.vision.route : "vision" };
     }
 
     async function redraw() {
@@ -174,9 +175,14 @@ export default {
           const r = await attempt(() => post(path));
           if (r) { toast(r.ok ? `${m.model_id}: OK${r.dim ? `, ${r.dim} dimensions` : ""}` : `${m.model_id}: ${r.error}`, r.ok ? "ok" : "err"); redraw(); }
         });
+        const eyes = button("Test vision", null, { small: true, title: "Show the model a picture and check that it reads it" });
+        eyes.onclick = busy(eyes, async () => {
+          const r = await attempt(() => post(`/api/providers/${p.id}/models/${modelPath(m.model_id)}/vision-test`));
+          if (r) { toast(r.ok ? `${m.model_id} reads images` : `${m.model_id}: ${r.error}`, r.ok ? "ok" : "err"); redraw(); }
+        });
         const status = m.test_ok === true ? badge(m.kind === "embedding" ? `ok · ${m.dim}d` : "tools ok", "ok") : m.test_ok === false ? badge("failed", "err") : badge("not tested");
         return h("tr", {}, h("td", { class: "mono" }, m.model_id, !m.available && badge("gone", "warn")), h("td", {}, m.kind), h("td", { class: "mono" }, m.context_window ? number(m.context_window) : "–"),
-          h("td", {}, status, m.test_error && h("div", { class: "hint" }, m.test_error)), h("td", {}, m.vision ? "yes" : "–"), h("td", {}, t));
+          h("td", {}, status, m.test_error && h("div", { class: "hint" }, m.test_error)), h("td", {}, m.vision && m.vision_tested ? badge("reads images", "ok") : m.vision_tested ? badge("cannot read", "err") : m.vision ? badge("claims vision") : "–", m.vision_error && h("div", { class: "hint" }, m.vision_error)), h("td", { class: "row" }, t, m.kind === "embedding" ? null : eyes));
       });
       const idIn = h("input", { type: "text", placeholder: "model id, for example llama3.1:8b" });
       const add = h("div", { class: "row" }, idIn, button("Add manually", async () => {
@@ -193,12 +199,16 @@ export default {
       const wrap = panel("Routes", "journey");
       const bodyEl = wrap.querySelector(".panel-body");
       bodyEl.append(h("p", { class: "hint" }, "A route is an ordered list of models. The first that answers wins; the next ones are the fallback. Only models that passed the tool-calling test can be added."));
-      const choices = [];
-      for (const p of data.providers) for (const m of data.models[p.id] || []) if (m.test_ok && m.kind !== "embedding") choices.push({ provider: p.slug, model: m.model_id });
-      for (const r of data.routes) bodyEl.append(routeItem(r, choices));
+      const choices = [], eyes = [];
+      for (const p of data.providers) for (const m of data.models[p.id] || []) {
+        if (m.test_ok && m.kind !== "embedding") choices.push({ provider: p.slug, model: m.model_id });
+        if (m.vision && m.vision_tested && m.kind !== "embedding") eyes.push({ provider: p.slug, model: m.model_id });
+      }
+      bodyEl.append(h("p", { class: "hint" }, `The ${data.visionRoute} route reads images and scanned pages for the knowledge base. It has no default: put a model that reads images (Test vision) first and any paid provider last. Images go only to the models on this route.`));
+      for (const r of data.routes) bodyEl.append(routeItem(r, r.name === data.visionRoute ? eyes : choices));
       const name = h("input", { type: "text", placeholder: "new route name", pattern: "[a-z0-9_\\-]{1,32}" });
       bodyEl.append(h("div", { class: "row" }, name, button("Create route", async () => {
-        if (name.value.trim() && await attempt(() => put(`/api/routes/${encodeURIComponent(name.value.trim())}`, { entries: choices.slice(0, 1) }), "Route created")) redraw();
+        if (name.value.trim() && await attempt(() => put(`/api/routes/${encodeURIComponent(name.value.trim())}`, { entries: [] }), "Route created")) redraw();
       }, { small: true, iconName: "plus" })));
       return wrap;
     }

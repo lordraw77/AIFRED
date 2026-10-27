@@ -554,7 +554,7 @@ def test_set_route_validation(env: Env, services: Services) -> None:
     assert "x" not in services.store.route_names()
     entries = services.llm.set_route("x", [{"provider": "b", "model": "test-model", "timeouts": {"first_token": 5}}, {"provider": "a", "model": "test-model"}])
     assert [e.label for e in entries] == ["b/test-model", "a/test-model"] and entries[0].timeouts == {"first_token": 5.0}
-    assert services.store.route_names() == ["default", "review", "x"]
+    assert services.store.route_names() == ["default", "review", "vision", "x"]
     for protected in ("default", "review"):
         with pytest.raises(ProviderError, match="cannot be deleted"):
             services.llm.delete_route(protected)

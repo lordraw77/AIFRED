@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import Response, APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
@@ -135,6 +135,34 @@ async def upload_document(
         return await asyncio.to_thread(services.rag.add_document, collection, name, bytes(data))
     except RagError as exc:
         raise _refuse(exc) from None
+
+
+def _image_mime(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+@router.get("/api/rag/documents/{doc_id}/file", response_model=None)
+def document_file(doc_id: int, _: AdminDep, services: ServicesDep) -> Response:
+    """The original file (an image inline for the thumbnail, anything else as a download).
+
+    The response is sandboxed by its own policy: whatever an uploaded file contains, the browser neither runs nor embeds it.
+    """
+    try:
+        name, data = services.rag.original(doc_id)
+    except RagError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+    mime = _image_mime(data)
+    headers = {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"}
+    if mime is None:
+        headers["Content-Disposition"] = f'attachment; filename="{name.replace(chr(34), "")}"'
+        mime = "application/octet-stream"
+    return Response(content=data, media_type=mime, headers=headers)
 
 
 @router.post("/api/rag/documents/url", status_code=status.HTTP_202_ACCEPTED)

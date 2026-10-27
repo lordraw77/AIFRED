@@ -463,7 +463,8 @@ class ProviderService:
 
         return {
             "model_id": row["model_id"], "context_window": row["context_window"], "tools": flag(row["tools"]),
-            "streaming": flag(row["streaming"]), "vision": flag(row["vision"]),
+            "streaming": flag(row["streaming"]), "vision": flag(row["vision"]), "vision_tested": row["vision_test_at"] is not None,
+            "vision_error": row["vision_error"] or "",
             "thinking_control": row["thinking_control"], "price_in": row["price_in"], "price_out": row["price_out"],
             "kind": row["kind"], "dim": row["dim"],
             "manual": bool(row["manual"]), "available": bool(row["available"]), "test_ok": flag(row["test_ok"]),
@@ -652,6 +653,27 @@ class ProviderService:
         self._store.model_set_embedding_test(provider_id, model_id, ok, dim, error)
         return {"model_id": model_id, "ok": ok, "dim": dim if ok else None, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
 
+    async def test_vision_model(self, provider_id: int, model_id: str, key_id: int | None = None) -> dict[str, Any]:
+        """Show the model a picture of a random number and record whether it can read it (needed for the vision route)."""
+        provider = self.get(provider_id)
+        row = self._store.model_get(provider_id, model_id)
+        if row is None:
+            if not MODEL_ID_RE.match(model_id):
+                raise ProviderError(f"invalid model id {model_id!r}")
+            self._store.model_save(provider_id, model_id, {}, manual=True)
+            row = self._store.model_get(provider_id, model_id)
+        assert row is not None
+        if row["kind"] != "chat":
+            raise ProviderError(f"{provider.slug}/{model_id} is an embedding model and cannot read images")
+        try:
+            key = self._vault.get(self._secret(key_id)) if key_id else self._first_key(provider)
+        except VaultUnavailable as exc:
+            raise ProviderError(f"the secret store is unavailable ({exc})") from None
+        started = time.monotonic()
+        ok, error = await _vision_probe(self, provider, model_id, key, row["thinking_control"])
+        self._store.model_set_vision_test(provider_id, model_id, ok, error)
+        return {"model_id": model_id, "ok": ok, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
+
     async def test_model(self, provider_id: int, model_id: str, key_id: int | None = None) -> dict[str, Any]:
         """Send a minimal tool-calling request and record whether the model calls the tool."""
         provider = self.get(provider_id)
@@ -692,6 +714,36 @@ class ProviderService:
             error = "timed out"
         self._store.model_set_test(provider_id, model_id, ok, error)
         return {"model_id": model_id, "ok": ok, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
+
+
+VISION_PROMPT = "What number is written in this image? Answer with the digits only."
+
+
+async def _vision_probe(svc: ProviderService, provider: Provider, model_id: str, key: str | None, thinking_control: str) -> tuple[bool, str]:
+    """Send a picture of a random number and check that the model reads it."""
+    import base64
+
+    from aifred.testimage import digits_png, random_number
+
+    number = random_number()
+    image = base64.b64encode(digits_png(number)).decode("ascii")
+    endpoint = svc._endpoint(provider, model_id, key, thinking_control)
+    messages = [{"role": "user", "content": [
+        {"type": "text", "text": VISION_PROMPT},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
+    ]}]
+    try:
+        async for event in stream_chat(endpoint, messages, None, temperature=0.0, http_factory=svc.http_factory):
+            if isinstance(event, Done):
+                digits = re.sub(r"\D", "", event.result.content)
+                if number in digits:
+                    return True, ""
+                return False, f"the model did not read the picture (it answered {event.result.content.strip()[:80]!r} instead of {number})"
+    except LLMError as exc:
+        return False, str(exc)
+    except asyncio.TimeoutError:
+        return False, "timed out"
+    return False, "the model gave no answer"
 
 
 def embed_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:

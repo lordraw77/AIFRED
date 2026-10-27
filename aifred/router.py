@@ -34,7 +34,7 @@ from aifred.vault import Vault, VaultUnavailable
 
 logger = logging.getLogger(__name__)
 
-PROTECTED_ROUTES = ("default", "review")
+PROTECTED_ROUTES = ("default", "review", "vision")
 MAX_ROUTE_ENTRIES = 12
 _SHORT_RATE_LIMIT = 5.0
 _UNAVAILABLE_BASE = 30.0
@@ -240,6 +240,8 @@ class LLMRouter:
             RouteError: If the route is unknown or empty.
         """
         spec = (spec or "").strip() or default_route
+        if spec == self._config.get("RAG_VISION_ROUTE"):
+            raise RouteError(f"the {spec!r} route is reserved for reading images for the knowledge base, not for chat")
         if "/" in spec:
             slug, _, model = spec.partition("/")
             provider = self._providers.by_slug(slug)
@@ -617,7 +619,13 @@ class LLMRouter:
                 raise ProviderError(f"entry {i}: {provider.slug}/{model_id} is not in the provider's model list")
             if model["kind"] != "chat":
                 raise ProviderError(f"entry {i}: {provider.slug}/{model_id} is an embedding model; routes carry chat models")
-            if not model["test_ok"]:
+            if name == self._config.get("RAG_VISION_ROUTE"):
+                # the vision route reads images for the knowledge base: it needs a model that can read, not one that calls tools
+                if not (model["vision"] and model["vision_test_at"]):
+                    raise ProviderError(
+                        f"entry {i}: {provider.slug}/{model_id} has not passed the vision test; run Test vision on the model first"
+                    )
+            elif not model["test_ok"]:
                 raise ProviderError(
                     f"entry {i}: {provider.slug}/{model_id} has not passed the tool-calling test; run Test on the model first"
                 )

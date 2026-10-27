@@ -177,7 +177,7 @@ class Commands:
             try:
                 await asyncio.to_thread(s.llm.resolve, args, "default")
             except RouteError as exc:
-                return f"{exc}. Routes: {', '.join(await asyncio.to_thread(s.store.route_names))}."
+                return f"{exc}. Routes: {', '.join(await self._chat_routes())}."
             agent.set_route(ctx.session_id, args)
             return f"This conversation now uses {args}" + (" (no fallback)." if "/" in args else ".")
         spec = agent.route_spec(ctx.session_id, ctx.source)
@@ -188,8 +188,13 @@ class Commands:
             return str(exc)
         lines = [f"Route: {spec} ({'chosen for this conversation' if pinned else 'default for ' + ctx.source})"]
         lines += [f" {i}. {e.label}" for i, e in enumerate(entries, start=1)]
-        routes = await asyncio.to_thread(s.store.route_names)
+        routes = await self._chat_routes()
         return "\n".join([*lines, f"Routes: {', '.join(routes)}. Use /model <route>, /model <provider>/<model> or /model auto."])
+
+    async def _chat_routes(self) -> list[str]:
+        """Route names a conversation can use (the vision route is reserved for reading images)."""
+        names = await asyncio.to_thread(self._s.store.route_names)
+        return [n for n in names if n != self._s.config.get("RAG_VISION_ROUTE")]
 
     async def _kb(self, args: str, ctx: Context) -> str:
         rag = self._s.rag

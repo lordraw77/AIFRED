@@ -169,6 +169,14 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("RAG_MAX_CHUNKS", "int", 100_000, "knowledge", "Cap on chunks in the whole knowledge base", minimum=100, maximum=10_000_000),
         SettingSpec("RAG_CACHE_MB", "int", 512, "knowledge", "Memory for cached vector matrices (0: no cache, scan the database)", minimum=0, maximum=65_536),
         SettingSpec("RAG_SCAN_MINUTES", "int", 0, "knowledge", "Rescan the knowledge folder every N minutes (0: only on request)", minimum=0, maximum=10_080),
+        SettingSpec("RAG_FORMATS", "list", ["text", "pdf", "office", "image"], "knowledge", "Formats the knowledge base accepts: text, pdf, office, image", item_pattern=re.compile(r"^(text|pdf|office|image)$")),
+        SettingSpec("RAG_VISION_ROUTE", "str", "vision", "knowledge", "Route whose model reads images and scanned pages (no default provider: you choose who receives the images)"),
+        SettingSpec("RAG_VISION_DAILY_LIMIT", "int", 200, "knowledge", "Images and scanned pages sent to the vision model per day (0: vision off)", minimum=0, maximum=1_000_000),
+        SettingSpec("RAG_MAX_IMAGE_BYTES", "int", 10_485_760, "knowledge", "Largest image accepted", minimum=1024, maximum=104_857_600),
+        SettingSpec("RAG_MAX_PAGES", "int", 500, "knowledge", "Pages read from one PDF or presentation", minimum=1, maximum=100_000),
+        SettingSpec("RAG_OCR_MIN_CHARS", "int", 40, "knowledge", "A PDF page with fewer characters is treated as a scan and read by the vision model", minimum=0, maximum=10_000),
+        SettingSpec("RAG_PARSE_TIMEOUT", "int", 60, "knowledge", "Seconds the sandboxed parser may run for one file", minimum=5, maximum=3600),
+        SettingSpec("RAG_PARSE_MEMORY_MB", "int", 768, "knowledge", "Address-space limit of the sandboxed parser (MB; Python with pypdf and the cryptography library already maps about 300)", minimum=64, maximum=16_384),
     ]
 }
 

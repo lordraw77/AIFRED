@@ -239,6 +239,19 @@ class LLMStoreMixin:
                 (int(ok), time.time(), error[:500], int(ok), provider_id, model_id),
             )
 
+    def model_set_vision_test(self, provider_id: int, model_id: str, ok: bool, error: str = "") -> None:
+        """Record the result of a vision test (a model can read an image) without touching the tool-calling test."""
+        with self._tx() as c:
+            c.execute(
+                "UPDATE models SET vision = ?, vision_test_at = ?, vision_error = ? WHERE provider_id = ? AND model_id = ?",
+                (int(ok), time.time(), error[:500], provider_id, model_id),
+            )
+
+    def usage_calls_since(self, agent: str, since: float) -> int:
+        """Successful calls of an agent since a time (the vision route's daily count)."""
+        row = self._one("SELECT COUNT(*) AS n FROM llm_usage WHERE agent = ? AND ts >= ? AND outcome = 'success'", (agent, since))
+        return int(row["n"]) if row else 0
+
     def model_set_embedding_test(self, provider_id: int, model_id: str, ok: bool, dim: int | None, error: str = "") -> None:
         """Record the result of an embedding test (the model becomes kind ``embedding``)."""
         with self._tx() as c:
@@ -259,7 +272,7 @@ class LLMStoreMixin:
     def route_names(self) -> list[str]:
         """Return route names, with ``default`` and ``review`` first."""
         names = [r["name"] for r in self._query("SELECT name FROM routes ORDER BY name")]
-        return sorted(names, key=lambda n: ({"default": 0, "review": 1}.get(n, 2), n))
+        return sorted(names, key=lambda n: ({"default": 0, "review": 1, "vision": 2}.get(n, 3), n))
 
     def route_exists(self, name: str) -> bool:
         """Whether a route exists."""
