@@ -108,6 +108,11 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `COOLDOWN_QUOTA` | `3600` | Default cooldown (s) after credit or quota exhaustion |
 | `MAX_ITERATIONS` | `12` | Maximum tool rounds per request |
 | `HISTORY_LIMIT` | `40` | History messages sent to the model |
+| `COMPRESS_ENABLED` | `true` | Summarise the older part of a long conversation |
+| `COMPRESS_TRIGGER_TOKENS` | `12000` | Estimated history size (four characters per token) that triggers a summary |
+| `COMPRESS_KEEP_MESSAGES` | `8` | Latest messages kept word for word |
+| `COMPRESS_SUMMARY_TOKENS` | `700` | Length limit of a summary |
+| `ROUTE_COMPRESS` | empty | Route for summaries (empty: the conversation's own route) |
 | `IDLE_MINUTES` | `30` | After this idle time the system prompt re-reads memory and skills |
 | `TOOL_OUTPUT_LIMIT` | `8000` | Maximum characters of tool output |
 | `LOG_LEVEL` | `INFO` | Log level |
@@ -204,7 +209,9 @@ Provider API keys, the Telegram token and MCP header values are never stored in 
 
 **Session ids:** `cli:<epoch>`, `tg:<chat_id>:<epoch>`, `web:<uuid>`, `api:<name>` (10.3).
 
-**History sent to the model:** the last `HISTORY_LIMIT` messages, dropping everything before the first `user` message so the window never starts with an orphan tool result.
+**History sent to the model:** the last `HISTORY_LIMIT` messages after the session's summary, dropping everything before the first `user` message so the window never starts with an orphan tool result.
+
+**Context compression.** When the estimated size of the summary plus the history passes `COMPRESS_TRIGGER_TOKENS`, the model condenses everything older than the newest `COMPRESS_KEEP_MESSAGES` messages (the cut falls on a `user` message) into notes of at most `COMPRESS_SUMMARY_TOKENS`. The notes and the id of the last message they cover are stored on the session (migration 9); later turns send the notes in the system prompt, framed as context and not instructions, plus the messages after that id. Nothing is deleted: the dashboard still shows the whole conversation. Tool results are cut to 400 characters before they are summarised, the summariser is told to ignore instructions inside the text, a summary that trips the injection scanner is discarded, and a failed attempt is not repeated for five minutes (the turn simply goes on with the full window). Sub-agent runs are not compressed. The summary call is recorded in the usage log as agent `compress`.
 
 **Search:** query terms (`\w+`, unicode) are quoted and joined with OR, ranked by `rank`, only `user`/`assistant` roles, current session excluded, with highlighted snippets.
 
@@ -950,7 +957,6 @@ Knowledge base, second step:
 | High | Advanced MCP | OAuth with Client ID Metadata Documents, stdio transport, `subscriptions/listen`, `input_required` (elicitation) |
 | Medium | Description assistant | LLM-assisted, measured instruction editor; design in 14.1 |
 | Medium | Interactive approval for the terminal | Inline buttons on Telegram |
-| Medium | Context compression | Summarise history beyond a threshold, trimming by tokens rather than by message count |
 | Low | Knowledge base: more formats | Legacy `.doc`, `.xls`, `.ppt`, e-mail and EPUB; until then convert to a supported format |
 | Medium | Knowledge base: reranking and evaluation | Cross-encoder rerank of the top 20, and a set of golden questions to measure recall before and after a change |
 | Low | Knowledge base: approximate index | `sqlite-vec` or an HNSW index beyond about 500,000 chunks (ADR-003) |
