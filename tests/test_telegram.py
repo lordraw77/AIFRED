@@ -83,6 +83,20 @@ async def test_allowed_user_gets_an_answer(bot: TelegramGateway) -> None:
     assert len(sessions) == 1 and sessions[0].startswith(f"tg:{ADMIN}:")
 
 
+async def test_markdown_answer_is_sent_as_html(bot: TelegramGateway) -> None:
+    bot.llm.queue(Text("### Titolo\n- **Roma** <vince>"))  # type: ignore[attr-defined]
+    await feed(bot, "hi")
+    assert bot.fake.texts(ADMIN) == ["<b>Titolo</b>\n• <b>Roma</b> &lt;vince&gt;"]  # type: ignore[attr-defined]
+    assert bot.fake.parse_modes == ["HTML"]  # type: ignore[attr-defined]
+
+
+async def test_markup_refused_by_telegram_falls_back_to_plain_text(bot: TelegramGateway) -> None:
+    bot.fake.reject_markup = True  # type: ignore[attr-defined]
+    bot.llm.queue(Text("### Titolo\n- **Roma**"))  # type: ignore[attr-defined]
+    await feed(bot, "hi")
+    assert bot.fake.texts(ADMIN) == ["### Titolo\n- **Roma**"]  # type: ignore[attr-defined]
+
+
 async def test_unknown_user_is_told_their_id_and_nothing_runs(bot: TelegramGateway) -> None:
     await feed(bot, "let me in", user=STRANGER)
     [reply] = bot.fake.texts(STRANGER)  # type: ignore[attr-defined]

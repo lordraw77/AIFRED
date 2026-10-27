@@ -109,6 +109,16 @@ def test_delete_session_cascades_to_fts(store: Store) -> None:
     assert not store.delete_session("s")
 
 
+def test_delete_session_removes_its_sub_agent_sessions(store: Store) -> None:
+    _chat(store, "parent", "hello")
+    _chat(store, "child", "sub task")
+    _chat(store, "other", "unrelated")
+    store.session_set_parent("child", "parent")
+    assert store.delete_session("parent")
+    assert store.get_session("child") is None and store.messages("child") == []
+    assert store.get_session("other") is not None
+
+
 def test_session_listing_and_rename(store: Store) -> None:
     _chat(store, "a", "one", "two")
     store.ensure_session("b", "telegram", "Title B")
