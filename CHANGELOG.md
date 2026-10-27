@@ -2,6 +2,17 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.4.0] - 2026-10-27
+
+### Added
+- **Description assistant, rest.** Progress is streamed while a test runs (`POST /api/assist/evaluate/stream`), the `/assist <scope> [hint]` chat command drafts or improves an instruction and scores it without saving anything, and Generate/Improve can optionally use your profile and notes (names, address ranges) when you tick the box.
+- **Knowledge base: reranking.** A rerank model (`RAG_RERANK_PROVIDER`, `RAG_RERANK_MODEL`, any `/rerank` endpoint: Jina, Cohere, Voyage, vLLM) re-orders the best 20 candidates; if it fails the normal order is kept and the result says so.
+- **Knowledge base: evaluation.** Golden questions (written by hand or by the model from your documents) and a *Run evaluation* button that compares `hybrid`, `dense`, `keyword` and `hybrid+rerank` by recall and MRR and keeps the history to show whether a change helped. Migration 10.
+
+- **MCP over stdio.** A server can be a command run as a child process instead of a URL. Off until you list the program in `MCP_STDIO_COMMANDS`; the program gets a minimal environment (only the variables set for that server, stored encrypted), its own private directory and process group, and is killed with everything it started. Command field on the MCP page. Migration 11.
+- **MCP OAuth.** A web server can sign in with OAuth 2.1 (authorization code, PKCE, discovery, refresh): *Authorize* on the MCP page opens the provider and the tokens are kept encrypted. A client id registered by hand (`MCP_OAUTH_CLIENT_ID`) or, if AIFRED is reachable from the internet, a client metadata document that AIFRED serves (`MCP_OAUTH_PUBLIC_URL`). Migration 12.
+- Not done: `subscriptions/listen` and `input_required` (elicitation, sampling) remain on the roadmap.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added

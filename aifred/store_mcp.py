@@ -12,9 +12,9 @@ import time
 from contextlib import AbstractContextManager
 from typing import Any
 
-_JSON_COLUMNS = ("header_names", "include", "exclude")
+_JSON_COLUMNS = ("header_names", "include", "exclude", "command")
 _FIELDS = (
-    "url", "enabled", "header_names", "verify_tls", "timeout", "connect_timeout", "protocol_version", "include", "exclude", "max_tools",
+    "url", "enabled", "header_names", "verify_tls", "timeout", "connect_timeout", "protocol_version", "include", "exclude", "max_tools", "command", "oauth",
 )
 
 
@@ -22,6 +22,7 @@ def _decode(row: dict[str, Any]) -> dict[str, Any]:
     for column in _JSON_COLUMNS:
         row[column] = json.loads(row[column])
     row["enabled"] = bool(row["enabled"])
+    row["oauth"] = bool(row.get("oauth"))
     return row
 
 
@@ -52,8 +53,9 @@ class McpStoreMixin:
         for column in _JSON_COLUMNS:
             if column in row:
                 row[column] = json.dumps(row[column])
-        if "enabled" in row:
-            row["enabled"] = 1 if row["enabled"] else 0
+        for flag in ("enabled", "oauth"):
+            if flag in row:
+                row[flag] = 1 if row[flag] else 0
         now = time.time()
         with self._tx() as c:
             exists = c.execute("SELECT 1 FROM mcp_servers WHERE name = ?", (name,)).fetchone() is not None

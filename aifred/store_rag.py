@@ -7,6 +7,7 @@ runs the worker, and survives a restart.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
@@ -318,3 +319,41 @@ class RagStoreMixin:
         by_status = {r["status"]: r["n"] for r in self._query("SELECT status, COUNT(*) AS n FROM rag_documents GROUP BY status")}
         row = self._one("SELECT (SELECT COUNT(*) FROM rag_collections) AS collections, (SELECT COUNT(*) FROM rag_chunks) AS chunks") or {}
         return {"collections": row.get("collections", 0), "chunks": row.get("chunks", 0), "documents": by_status}
+
+    # Golden questions and evaluation runs
+
+    def rag_golden_add(self, question: str, collection: str, source: str, phrase: str) -> int:
+        """Add a question the knowledge base should answer, with where the answer lives (a source and/or a phrase)."""
+        with self._tx() as c:
+            return int(c.execute("INSERT INTO rag_golden (question, collection, source, phrase, created) VALUES (?, ?, ?, ?, ?)",
+                                 (question, collection, source, phrase, time.time())).lastrowid or 0)
+
+    def rag_golden_list(self) -> list[dict[str, Any]]:
+        """Every golden question, oldest first."""
+        return self._query("SELECT * FROM rag_golden ORDER BY id")
+
+    def rag_golden_delete(self, golden_id: int) -> bool:
+        """Remove a golden question; returns whether it existed."""
+        with self._tx() as c:
+            return c.execute("DELETE FROM rag_golden WHERE id = ?", (golden_id,)).rowcount > 0
+
+    def rag_eval_add(self, label: str, variant: str, k: int, total: int, recall: float, mrr: float, misses: list[str]) -> int:
+        """Record the result of one variant of an evaluation run."""
+        with self._tx() as c:
+            return int(c.execute("INSERT INTO rag_evals (ts, label, variant, k, total, recall, mrr, misses) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                 (time.time(), label, variant, k, total, recall, mrr, json.dumps(misses))).lastrowid or 0)
+
+    def rag_eval_list(self, limit: int = 60) -> list[dict[str, Any]]:
+        """Recent evaluation results, newest first."""
+        rows = self._query("SELECT * FROM rag_evals ORDER BY id DESC LIMIT ?", (limit,))
+        for row in rows:
+            row["misses"] = json.loads(row["misses"])
+        return rows
+
+    def rag_sample_chunks(self, count: int, collection: str | None = None) -> list[dict[str, Any]]:
+        """Random indexed chunks with their document, to write questions from."""
+        where, params = ("WHERE col.name = ?", (collection,)) if collection else ("", ())
+        return self._query(
+            "SELECT c.text, d.source, d.title, col.name AS collection FROM rag_chunks c JOIN rag_documents d ON d.id = c.document_id "
+            f"JOIN rag_collections col ON col.id = d.collection_id {where} ORDER BY RANDOM() LIMIT ?", (*params, count),
+        )

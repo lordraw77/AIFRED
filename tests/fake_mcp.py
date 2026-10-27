@@ -100,6 +100,8 @@ class FakeMcp:
         reject_style: How a non-modern server answers a modern request: ``empty400``, ``404``, ``405`` or ``rpc200``.
         sse: Answer with an SSE stream instead of JSON.
         token: Required bearer token (401 otherwise).
+        token_ok: Called with the ``Authorization`` header value; falsy means 401 (OAuth tests, where tokens change).
+        oauth_issuer: Advertise this authorization server in the protected-resource metadata and in the 401 answer.
         tools: Tool definitions served.
         page_size: Tools per ``tools/list`` page (0: one page).
         ttl_ms: ``ttlMs`` returned by modern ``tools/list``.
@@ -115,6 +117,8 @@ class FakeMcp:
     reject_style: str = "empty400"
     sse: bool = False
     token: str | None = None
+    token_ok: Any = None
+    oauth_issuer: str | None = None
     tools: list[dict[str, Any]] = field(default_factory=lambda: [dict(t) for t in TOOLS])
     page_size: int = 0
     ttl_ms: int | None = None
@@ -177,6 +181,12 @@ class FakeMcp:
     def _build(self) -> FastAPI:
         app = FastAPI()
 
+        @app.get("/.well-known/oauth-protected-resource")
+        async def protected_resource() -> Response:
+            if not self.oauth_issuer:
+                return Response(status_code=404)
+            return JSONResponse({"resource": self.url, "authorization_servers": [self.oauth_issuer], "scopes_supported": ["mcp"]})
+
         @app.get("/mcp")
         async def get(request: Request) -> Response:
             self.requests.append(Seen("GET", dict(request.headers), {}, "GET"))
@@ -202,8 +212,9 @@ class FakeMcp:
             headers = {k.lower(): v for k, v in request.headers.items()}
             method, rid, params = body.get("method", ""), body.get("id"), body.get("params") or {}
             self.requests.append(Seen(method, headers, body))
-            if self.token and headers.get("authorization") != f"Bearer {self.token}":
-                return Response(status_code=401, content=b"unauthorized")
+            if (self.token and headers.get("authorization") != f"Bearer {self.token}") or (self.token_ok and not self.token_ok(headers.get("authorization", ""))):
+                challenge = {"WWW-Authenticate": f'Bearer resource_metadata="http://127.0.0.1:{self.port}/.well-known/oauth-protected-resource"'} if self.oauth_issuer else {}
+                return Response(status_code=401, content=b"unauthorized", headers=challenge)
             if self.old_sse_transport:
                 return Response(status_code=405)
             meta = params.get("_meta") or {}

@@ -22,7 +22,7 @@ export default {
       const [st, collections, docs] = await Promise.all([get("/api/rag/status"), get("/api/rag/collections"), get(`/api/rag/documents${collection ? `?collection=${encodeURIComponent(collection)}` : ""}`)]);
       ctx.setCount(st.documents ? Object.values(st.documents).reduce((a, b) => a + b, 0) : 0);
       clear(body);
-      body.append(statusPanel(st), collectionsPanel(collections), documentsPanel(collections, docs), searchPanel(collections));
+      body.append(statusPanel(st), collectionsPanel(collections), documentsPanel(collections, docs), searchPanel(collections), qualityPanel(collections, docs));
       clearTimeout(timer);
       if (docs.some((d) => ["queued", "indexing", "waiting"].includes(d.status))) timer = setTimeout(draw, 3000);
     }
@@ -107,12 +107,81 @@ export default {
         if (!r.hits.length) out.append(empty("No matching passage."));
         for (const hit of r.hits) {
           out.append(h("div", { class: "item" }, h("div", { class: "row" }, h("span", { class: "mono" }, `${hit.collection} / ${hit.source}${hit.heading ? ` › ${hit.heading}` : ""}${hit.page ? ` p. ${hit.page}` : ""}`),
-            hit.dense_rank ? badge(`dense #${hit.dense_rank}`) : null, hit.keyword_rank ? badge(`keyword #${hit.keyword_rank}`) : null, hit.flagged ? badge("flagged", "warn") : null, hit.machine_read ? badge("machine-read") : null),
+            hit.dense_rank ? badge(`dense #${hit.dense_rank}`) : null, hit.keyword_rank ? badge(`keyword #${hit.keyword_rank}`) : null, hit.rerank !== null && hit.rerank !== undefined ? badge(`rerank ${hit.rerank.toFixed(2)}`, "ok") : null, hit.flagged ? badge("flagged", "warn") : null, hit.machine_read ? badge("machine-read") : null),
             h("div", { class: "pre" }, hit.text)));
         }
       };
       q.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
       return panel("Test search", "logs", h("div", { class: "row" }, q, mode, button("Search", run, { primary: true, small: true })), out);
+    }
+
+    // Retrieval quality: golden questions and evaluation runs ------------------------------------------
+
+    function qualityPanel(collections, docs) {
+      const box = h("div", { class: "stack" });
+      const list = h("div", {}), results = h("div", {}), history = h("div", {}), suggestions = h("div", {});
+      const question = h("input", { type: "text", placeholder: "A question the documents should answer", maxlength: "300", "aria-label": "Question" });
+      const source = h("input", { type: "text", placeholder: "Which document (name or part of it)", maxlength: "300", list: "golden-sources", "aria-label": "Expected document" });
+      const phrase = h("input", { type: "text", placeholder: "Optional: a phrase the passage must contain", maxlength: "200", "aria-label": "Expected phrase" });
+      const sources = h("datalist", { id: "golden-sources" }, [...new Set(docs.map((d) => d.source))].map((x) => h("option", { value: x })));
+      const k = h("select", { "aria-label": "Results counted" }, [1, 3, 5, 10].map((n) => h("option", { value: String(n), selected: n === 5 || null }, `top ${n}`)));
+      const label = h("input", { type: "text", placeholder: "Label for this run, e.g. before rerank", maxlength: "60", "aria-label": "Run label" });
+
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      const loadList = async () => {
+        const rows = await attempt(() => get("/api/rag/golden")) || [];
+        clear(list);
+        if (!rows.length) list.append(empty("No golden questions yet. Add a few, or let the model write some from your documents."));
+        for (const g of rows) {
+          list.append(h("div", { class: "item" }, h("div", { class: "row between" }, h("span", {}, g.question),
+            dangerButton("Delete", async () => { if (await attempt(() => del(`/api/rag/golden/${g.id}`), "Deleted")) loadList(); })),
+            h("div", { class: "mono muted" }, [g.source && `in ${g.source}`, g.phrase && `containing "${g.phrase}"`].filter(Boolean).join(" · "))));
+        }
+      };
+      const loadHistory = async () => {
+        const rows = await attempt(() => get("/api/rag/evals?limit=40")) || [];
+        clear(history);
+        if (!rows.length) return;
+        const rank = (r, i) => { const before = rows.slice(i + 1).find((x) => x.variant === r.variant && x.k === r.k); return before ? r.recall - before.recall : null; };
+        history.append(h("div", { class: "label" }, "Earlier runs"), h("table", {}, h("thead", {}, h("tr", {}, ["When", "Label", "Search", "Counted", "Recall", "MRR", "Questions"].map((x) => h("th", {}, x)))),
+          h("tbody", {}, rows.slice(0, 16).map((r, i) => { const d = rank(r, i); return h("tr", {}, h("td", {}, ago(r.ts)), h("td", {}, r.label || "–"), h("td", { class: "mono" }, r.variant), h("td", {}, `top ${r.k}`),
+            h("td", { class: "mono" }, pct(r.recall), d === null || d === 0 ? "" : h("span", { class: d > 0 ? "good" : "bad" }, ` ${d > 0 ? "▲" : "▼"}${Math.abs(Math.round(d * 100))}`)), h("td", { class: "mono" }, r.mrr.toFixed(2)), h("td", {}, String(r.total))); }))));
+      };
+      const add = button("Add question", async () => {
+        if (!question.value.trim()) return;
+        if (await attempt(() => post("/api/rag/golden", { question: question.value, source: source.value, phrase: phrase.value, collection: collection || "" }), "Question added")) { question.value = ""; phrase.value = ""; loadList(); }
+      }, { small: true, primary: true });
+      const suggest = button("Write questions from my documents", null, { small: true, title: "The model reads a few random passages and writes a question for each" });
+      suggest.onclick = busy(suggest, async () => {
+        const r = await attempt(() => post(`/api/rag/golden/suggest?count=6${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`));
+        clear(suggestions);
+        if (!r) return;
+        suggestions.append(h("div", { class: "hint" }, "Written by the model of the assist route (the passages were sent there). Keep the ones that are good tests."));
+        for (const q of r) {
+          const item = h("div", { class: "item" }, h("div", {}, q.question), h("div", { class: "mono muted" }, `in ${q.source}`));
+          item.append(h("div", { class: "row" },
+            button("Keep", async () => { if (await attempt(() => post("/api/rag/golden", q), "Question added")) { item.remove(); loadList(); } }, { small: true, primary: true }),
+            button("Skip", () => item.remove(), { small: true })));
+          suggestions.append(item);
+        }
+      });
+      const run = button("Run evaluation", null, { small: true, primary: true, title: "Search every question each way and score where the right passage ranks" });
+      run.onclick = busy(run, async () => {
+        clear(results);
+        const r = await attempt(() => post("/api/rag/evaluate", { k: Number(k.value), label: label.value }));
+        if (!r) return;
+        results.append(h("table", {}, h("thead", {}, h("tr", {}, ["Search", "Recall", "MRR", "Missed"].map((x) => h("th", {}, x)))),
+          h("tbody", {}, r.results.map((x) => h("tr", {}, h("td", { class: "mono" }, x.variant), h("td", { class: "mono" }, pct(x.recall)), h("td", { class: "mono" }, x.mrr.toFixed(2)),
+            h("td", {}, x.misses.length ? x.misses.join(" · ") : "none"))))),
+          h("div", { class: "hint" }, r.reranking ? "hybrid+rerank is the hybrid search with the rerank model re-ordering the best candidates." : "Set RAG_RERANK_PROVIDER and RAG_RERANK_MODEL on the Config page to compare reranking."));
+        loadHistory();
+      });
+      box.append(
+        h("p", { class: "hint" }, "A golden question says where its answer lives. Recall is the share of questions whose right passage is among the top results; MRR is higher when it sits nearer the top. Run it before and after a change (chunk size, embedding model, rerank) to see whether search got better."),
+        list, h("div", { class: "row" }, question, source, phrase, add, sources), h("div", { class: "row" }, suggest), suggestions,
+        h("div", { class: "row" }, k, label, run), results, history);
+      loadList(); loadHistory();
+      return panel("Retrieval quality", "logs", box);
     }
 
     await draw();

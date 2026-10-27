@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+import html
+
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
 from aifred.instructions import InstructionError
 from aifred.mcp import McpConfigError
+from aifred.mcp_oauth import CALLBACK_PATH, OAuthError
 from aifred.vault import VaultError
 
 router = APIRouter()
@@ -23,7 +27,9 @@ class McpServerIn(BaseModel):
     """
 
     url: str | None = None
+    command: str | list[str] | None = None   # a stdio server: the program and its arguments (needs MCP_STDIO_COMMANDS)
     enabled: bool | None = None
+    oauth: bool | None = None   # sign in with OAuth in the browser (Authorize on the MCP page)
     headers: dict[str, str | None] | None = None
     verify_tls: bool | str | None = None
     timeout: float | None = None
@@ -65,7 +71,10 @@ async def save_server(name: str, body: McpServerIn, _: AdminDep, services: Servi
             raise McpConfigError("What is this for? is required: write when the agent should use this server's tools")
         if text:
             services.instructions.check(f"mcp:{name}", text)
-        if not body.skip_test and data.get("enabled", True):
+        current = services.mcp.get(name)
+        wants_oauth = data["oauth"] if "oauth" in data else bool(current and current.oauth)
+        signed_in = services.mcp.oauth.status(name)["authorized"]
+        if not body.skip_test and data.get("enabled", True) and not (wants_oauth and not signed_in):    # a server that still needs signing in cannot be tested yet
             server, headers = services.mcp.preview(name, data)
             result = await asyncio.to_thread(services.mcp_manager.test, server, headers)
             if not result["ok"]:
@@ -117,3 +126,64 @@ def reload_servers(_: AdminDep, services: ServicesDep) -> Ok:
 def export_servers(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """The import format without header values."""
     return services.mcp.export()
+
+
+# OAuth sign-in
+
+
+def _redirect_uri(request: Request, services: Any) -> str:
+    public = str(services.config.get("MCP_OAUTH_PUBLIC_URL") or "").strip().rstrip("/")
+    return f"{public}{CALLBACK_PATH}" if public else f"{str(request.base_url).rstrip('/')}{CALLBACK_PATH}"
+
+
+@router.post("/api/mcp/servers/{name}/oauth/start")
+async def oauth_start(name: str, request: Request, _: AdminDep, services: ServicesDep) -> dict[str, str]:
+    """Begin signing in to a server: returns the address of its authorization page, to open in the browser."""
+    server = services.mcp.get(name)
+    if server is None or not server.oauth:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such server, or it is not set to use OAuth")
+    try:
+        url = await asyncio.to_thread(services.mcp.oauth.begin, name, server.url, _redirect_uri(request, services))
+    except OAuthError as exc:
+        raise _unprocessable(exc) from None
+    return {"url": url}
+
+
+@router.get("/api/mcp/oauth/callback")
+async def oauth_callback(_: AdminDep, services: ServicesDep, state: str = "", code: str = "", error: str = "", error_description: str = "") -> Any:
+    """Where the authorization server sends the browser back; completes the sign-in and returns to the MCP page."""
+    def page(message: str, ok: bool = False) -> HTMLResponse:
+        title = "Signed in" if ok else "Sign-in failed"
+        return HTMLResponse(f"<!doctype html><meta charset=utf-8><title>{title}</title><body style='font-family:sans-serif;max-width:40em;margin:3em auto'>"
+                            f"<h1>{title}</h1><p>{html.escape(message)}</p><p><a href='/#/mcp'>Back to AIFRED</a></p>", status_code=200 if ok else 400)
+
+    if error:
+        return page(f"The authorization server said: {error_description or error}")
+    if not state or not code:
+        return page("The answer from the authorization server is incomplete.")
+    try:
+        name = await asyncio.to_thread(services.mcp.oauth.finish, state, code)
+    except OAuthError as exc:
+        return page(str(exc))
+    services.mcp_manager.reload()
+    services.store.journal_add("settings", "mcp_server", f"MCP server {name!r} signed in with OAuth")
+    return RedirectResponse("/#/mcp", status_code=303)
+
+
+@router.post("/api/mcp/servers/{name}/oauth/forget")
+def oauth_forget(name: str, _: AdminDep, services: ServicesDep) -> Ok:
+    """Drop the stored tokens of a server; it has to be authorized again."""
+    if services.mcp.get(name) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such server")
+    services.mcp.oauth.forget(name)
+    services.mcp_manager.reload()
+    return Ok()
+
+
+@router.get("/api/mcp/oauth/client.json")
+def oauth_client_metadata(services: ServicesDep) -> dict[str, Any]:
+    """AIFRED's client ID metadata document, which an authorization server fetches by its address (public on purpose)."""
+    document = services.mcp.oauth.client_metadata()
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no public address is configured (MCP_OAUTH_PUBLIC_URL)")
+    return document

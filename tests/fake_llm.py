@@ -153,6 +153,9 @@ class FakeLLM:
         self.models_status = 200
         self.always: Step | None = None
         self.embed_requests: list[Received] = []
+        self.rerank_requests: list[Received] = []
+        self.rerank_steps: list[Status] = []
+        self.rerank_fn: Any = None
         self.embed_steps: list[Status] = []
         self.embed_dim = 256
         self._server: uvicorn.Server | None = None
@@ -243,6 +246,22 @@ class FakeLLM:
                     "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
                 }
             )
+
+        @app.post("/v1/rerank")
+        async def rerank(request: Request) -> Any:
+            body = await request.json()
+            self.rerank_requests.append(Received(body, {k.lower(): v for k, v in request.headers.items()}))
+            if not self._authorised(request):
+                return JSONResponse({"error": {"message": "Incorrect API key provided"}}, status_code=401)
+            if self.rerank_steps:
+                step = self.rerank_steps.pop(0)
+                return JSONResponse(step.body if step.body is not None else {"error": {"message": f"status {step.code}"}}, status_code=step.code)
+            words = set(str(body["query"]).lower().split())
+            scores = [len(words & set(str(d).lower().split())) / (1 + len(str(d).split())) for d in body["documents"]]
+            if self.rerank_fn is not None:
+                scores = self.rerank_fn(body["query"], body["documents"])
+            order = sorted(range(len(scores)), key=lambda i: -scores[i])[: body.get("top_n") or len(scores)]
+            return JSONResponse({"results": [{"index": i, "relevance_score": scores[i]} for i in order]})
 
         return app
 

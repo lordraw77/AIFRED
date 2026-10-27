@@ -131,6 +131,8 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `WRITE_APPROVAL` | `off` | `off`, `memory`, `skills` or `all`: queue saves for approval |
 | `NOTIFICATIONS` | `on` | `off`, `on` or `verbose`: show saves and fallbacks in chat |
 | `MCP_CONNECT_TIMEOUT` / `MCP_CALL_TIMEOUT` | `15` / `120` | Defaults for MCP servers (s) |
+| `MCP_STDIO_COMMANDS` | empty | Program names the dashboard may start as MCP servers over stdio (empty: off) |
+| `MCP_OAUTH_CLIENT_ID` / `MCP_OAUTH_PUBLIC_URL` | empty | Client id registered by hand / public https address for the client metadata document |
 | `MCP_MAX_TOOLS_PER_SERVER` | `40` | Cap on tools exposed per MCP server |
 | `INSTRUCTIONS_BUDGET` | `3000` | Maximum characters of the Capabilities section of the system prompt (9.3) |
 | `RAG_ENABLED` | `false` | Turns the knowledge base on: ingestion worker, API and dashboard page (9.4). The model can use it only where the `knowledge` toolset is also enabled |
@@ -138,6 +140,8 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `RAG_CHUNK_CHARS` / `RAG_CHUNK_OVERLAP` | `1200` / `150` | Target chunk size and overlap (characters) |
 | `RAG_EMBED_BATCH` | `16` | Chunks per embedding request |
 | `RAG_TOP_K` | `5` | Results returned by default (1–10) |
+| `RAG_RERANK_PROVIDER`, `RAG_RERANK_MODEL` | empty | A rerank model on a provider that offers `/rerank` (Jina, Cohere, Voyage, vLLM); empty: no reranking |
+| `RAG_RERANK_CANDIDATES` | `20` | Fused candidates the rerank model re-orders |
 | `RAG_MIN_SIMILARITY` | `0.30` | Dense candidates below this cosine similarity are dropped |
 | `RAG_MAX_DOCUMENT_BYTES` | `5242880` | Largest document accepted (5 MB) |
 | `RAG_MAX_CHUNKS` | `100000` | Cap on chunks in the whole knowledge base (disk; memory is governed by `RAG_CACHE_MB`, 9.4) |
@@ -517,8 +521,9 @@ Server names match `^[a-z0-9_]{1,24}$`. Each server forms the toolset `mcp:<name
 - **Secrets:** header values are stored encrypted (4.2); the dashboard API returns header names only, never values; an `mcp.json` import file should have 0600 permissions and is deleted after import.
 - **Prompt injection:** tool descriptions and results are untrusted data. If a tool definition changes between two reads, the change is journaled.
 - **Open Telegram bot:** with an empty allowlist no MCP server is exposed to the bot.
-- **Stdio:** not supported in v0.1; MCP servers run as separate containers reached over HTTP, so the agent container never launches arbitrary processes.
-- **OAuth:** out of v0.1 (static headers only); on the roadmap with Client ID Metadata Documents, since dynamic client registration is deprecated in revision 2026-07-28.
+- **Stdio (built on 27 October 2026).** A server may be a command instead of a URL, run as a child process of AIFRED (JSON-RPC lines on stdin and stdout, protocol 2025-11-25). It is the most powerful thing a definition can do, so: nothing starts unless the program's file name is in `MCP_STDIO_COMMANDS` (empty by default, so the feature is off), the allowlist is checked again on every save, a relative path is refused, the process gets a minimal environment (`PATH`, `HOME`, `LANG` plus only the variables set for that server, which are stored encrypted like headers; `PATH`, `HOME`, `LD_*`, `PYTHON*` and similar cannot be set), runs in its own session in a private directory under the data directory, and is killed together with whatever it started. Requests from the server (sampling, roots, elicitation) are answered with "method not found". It runs inside the AIFRED container with the container's privileges and no network isolation of its own: list only programs you trust, and note that the image ships only Python.
+- **OAuth (built on 27 October 2026).** A web server may be set to sign in with OAuth 2.1: authorization code with PKCE (S256 required), discovery through the server's protected-resource metadata and the authorization server's metadata, the `resource` parameter, refresh before expiry. Only `https` metadata is followed (`http` only on the MCP server's own host, for a homelab server) and redirects never are; `state` is single-use and lasts 10 minutes; tokens live in the vault (`mcp_oauth:<name>`) and are never logged or returned by the API. The client identity is a client id registered by hand (`MCP_OAUTH_CLIENT_ID`) or, with `MCP_OAUTH_PUBLIC_URL` (the https address AIFRED is reachable at from the internet), a client ID metadata document that AIFRED serves at `/api/mcp/oauth/client.json`; a home network that is not reachable from outside therefore needs a registered client id. The dashboard's *Authorize* opens the provider in a new tab and the provider returns to `/api/mcp/oauth/callback`, which only the signed-in admin can complete. A server that still needs signing in is saved without the connection test.
+- **Not built:** `subscriptions/listen` and `input_required` (elicitation, sampling): they need a revision-2026-07-28 server to test against, and elicitation needs a way to ask the user in the middle of a tool call; an `input_required` result is still returned to the model as an error.
 
 #### Implementation details
 
@@ -559,6 +564,8 @@ Memory tells the agent about the user; **instructions** tell it about its capabi
 
 ### 9.4 Local knowledge base (RAG)
 
+**Measuring retrieval (built on 27 October 2026).** *Golden questions* (migration 10) say where an answer lives: a document source or part of its name, a phrase the passage must contain, or both; the model can write one per random passage (the passages go to the `assist` route's provider; the admin keeps the good ones). *Run evaluation* searches every question with `hybrid`, `dense`, `keyword` and, when a rerank model is set, `hybrid+rerank`, and reports recall@k and the mean reciprocal rank; each result is stored with a label so the next run shows the change. API: `GET/POST /api/rag/golden`, `DELETE /api/rag/golden/{id}`, `POST /api/rag/golden/suggest`, `POST /api/rag/evaluate`, `GET /api/rag/evals`. The rerank model is an HTTP `/rerank` endpoint, not a local model: no new dependency.
+
 The agent can answer from the admin's own documents (manuals, runbooks, notes, exported pages) through a **local knowledge base**: documents are split into chunks, embedded, stored in the same SQLite database and found again with a hybrid search. Memory (7) keeps a few durable facts and skills (8) keep procedures; the knowledge base holds reference material that is too large for either. Nothing new runs beside the container: no vector database and no extra service.
 
 #### Collections and documents
@@ -585,7 +592,7 @@ Computed through the provider's OpenAI-compatible `POST /embeddings` with the mo
 2. **dense candidates:** exact cosine similarity against the collection's vectors, the best `4 × limit`, dropping anything below `RAG_MIN_SIMILARITY`;
 3. **keyword candidates:** FTS5 BM25 over the chunk text and headings with an OR-of-quoted-terms query (accents folded), the best `4 × limit`. One-letter words and common English and Italian function words are left out of that query, because in a small corpus they outrank the real match; if nothing else is left the plain terms are used, and identifiers and numbers are never dropped;
 4. the two lists are fused with **reciprocal rank fusion** (the sum of `1 / (60 + rank)`), which needs no calibration between cosine and BM25 scores;
-5. adjacent chunks of the same document are merged and the best `limit` results (default `RAG_TOP_K`) are returned, each with collection, document title, heading path, chunk number and text (about 1,500 characters at most).
+5. when a rerank model is configured, the best `RAG_RERANK_CANDIDATES` fused candidates are re-ordered by `POST {provider}/rerank` (query and passages, a score per passage); if the call fails or answers with invalid indexes the fused order is kept and a note says reranking was skipped; adjacent chunks of the same document are merged and the best `limit` results (default `RAG_TOP_K`) are returned, each with collection, document title, heading path, chunk number and text (about 1,500 characters at most).
 
 If the embedding service is unreachable, or the collection is `stale`, the search falls back to keywords only and says so in the result. Exact search keeps results reproducible and needs no index to maintain. It scores a collection with a single matrix product using `numpy` (ADR-003). Memory is bounded and configurable: the matrices of recently searched collections are kept in an LRU cache of at most `RAG_CACHE_MB` megabytes (default 512), built by streaming rows into a preallocated array so that the peak is one matrix plus one batch; a collection that does not fit is scanned straight from the database in blocks, which is slower but needs constant memory. A 768-dimension chunk takes 3 KB of vector, so the default cap of 100,000 chunks is about 307 MB and fits the cache. The container limit is `AIFRED_MEM_LIMIT` (default 1 GB, raised from 512 MB); raise it together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS`.
 
@@ -955,11 +962,10 @@ Knowledge base, second step:
 
 | Priority | Feature | Note |
 | --- | --- | --- |
-| High | Advanced MCP | OAuth with Client ID Metadata Documents, stdio transport, `subscriptions/listen`, `input_required` (elicitation) |
+| Medium | Advanced MCP: the rest | `subscriptions/listen` and `input_required` (elicitation, sampling), once a 2026-07-28 server is available to test against |
 | Low | Description assistant: the rest | `/assist` command, streamed progress, memory and session inputs (design in 14.1) |
 | Medium | Interactive approval for the terminal | Inline buttons on Telegram |
 | Low | Knowledge base: more formats | Legacy `.doc`, `.xls`, `.ppt`, e-mail and EPUB; until then convert to a supported format |
-| Medium | Knowledge base: reranking and evaluation | Cross-encoder rerank of the top 20, and a set of golden questions to measure recall before and after a change |
 | Low | Knowledge base: approximate index | `sqlite-vec` or an HNSW index beyond about 500,000 chunks (ADR-003) |
 | Low | Knowledge base: per-gateway collections | Let chosen collections reach the open Telegram bot |
 | Low | Knowledge base: folder watcher | inotify instead of periodic scans |
