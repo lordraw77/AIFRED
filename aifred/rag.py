@@ -26,7 +26,7 @@ import numpy as np
 
 from aifred.chunking import Chunk, FormatError, chunk_blocks, chunk_text, join_overlapping, load_document, supported
 from aifred.embeddings import EmbeddingClient, EmbeddingError, from_blob, to_blob
-from aifred.providers import SLUG_RE, ProviderError, embed_target
+from aifred.providers import SLUG_RE, ProviderError, embed_target, rerank_target
 from aifred.rag_parse import magic_kind
 from aifred.rag_sandbox import SandboxError, run_parser
 from aifred.rag_vision import VisionLimit, VisionOutage, VisionReader, VisionUnavailable, day_start
@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 RRF_K = 60
 HIT_CHARS = 1500
+RERANK_CHARS = 1500
 MAX_QUERY_TERMS = 32
 SCAN_BLOCK = 2048
 BINARY_GROUPS = {
@@ -85,6 +86,7 @@ class Hit:
         flagged: Whether the document tripped the injection scanner.
         vision: Whether the text was produced by a vision model.
         page: Page or slide number, when known.
+        rerank: Relevance given by the rerank model, when one re-ordered the candidates.
     """
 
     collection: str
@@ -99,6 +101,7 @@ class Hit:
     flagged: bool = False
     vision: bool = False
     page: int | None = None
+    rerank: float | None = None
 
     def render(self, number: int) -> str:
         """Format for the model: a header line with the citation, then the indented excerpt."""
@@ -107,6 +110,7 @@ class Hit:
         ranks = " · ".join(
             part for part in (
                 f"dense #{self.dense_rank}" if self.dense_rank else "", f"keyword #{self.keyword_rank}" if self.keyword_rank else "",
+                f"rerank {self.rerank:.2f}" if self.rerank is not None else "",
             ) if part
         )
         marks = ("  ⚠ flagged document" if self.flagged else "") + ("  (machine-read)" if self.vision else "")
@@ -845,7 +849,9 @@ class RagService:
 
     # Search -----------------------------------------------------------------------------------------
 
-    def search(self, query: str, collections: list[str] | None = None, limit: int | None = None, mode: str = "hybrid") -> SearchResult:
+    def search(
+        self, query: str, collections: list[str] | None = None, limit: int | None = None, mode: str = "hybrid", rerank: bool | None = None,
+    ) -> SearchResult:
         """Search the knowledge base.
 
         Args:
@@ -853,6 +859,7 @@ class RagService:
             collections: Collection names; all when omitted.
             limit: Results to return (1-10); ``RAG_TOP_K`` when omitted.
             mode: ``hybrid`` (default), ``dense`` or ``keyword``.
+            rerank: Re-order the best candidates with the rerank model (default: when one is configured).
 
         Raises:
             RagError: For an empty query, an unknown collection or a bad mode.
@@ -882,10 +889,45 @@ class RagService:
         dense_rank = {cid: rank for rank, (cid, _) in enumerate(dense, start=1)}
         keyword_rank = {cid: rank for rank, cid in enumerate(keyword, start=1)}
         fused = reciprocal_rank_fusion([[cid for cid, _ in dense], keyword])
-        order = sorted(fused, key=lambda cid: (-fused[cid], dense_rank.get(cid, 10**9), keyword_rank.get(cid, 10**9)))[:limit]
+        ranked = sorted(fused, key=lambda cid: (-fused[cid], dense_rank.get(cid, 10**9), keyword_rank.get(cid, 10**9)))
+        scores = fused
+        if (self.reranking if rerank is None else rerank) and len(ranked) > 1:
+            ranked, scores = self._rerank(query, ranked[: int(self._config.get("RAG_RERANK_CANDIDATES"))], fused, result.notes)
+        order = ranked[:limit]
         info = self._store.rag_chunks_info(order)
-        result.hits = self._merge([cid for cid in order if cid in info], info, fused, dense_rank, keyword_rank)
+        result.hits = self._merge([cid for cid in order if cid in info], info, scores, dense_rank, keyword_rank)
+        if scores is not fused:
+            for hit in result.hits:
+                hit.rerank = hit.score
         return result
+
+    @property
+    def reranking(self) -> bool:
+        """Whether a rerank model is configured."""
+        return bool(self._config.get("RAG_RERANK_PROVIDER") and self._config.get("RAG_RERANK_MODEL"))
+
+    def _rerank(self, query: str, candidates: list[int], fused: dict[int, float], notes: list[str]) -> tuple[list[int], dict[int, float]]:
+        """Re-order candidates with the rerank model; on any failure the fused order stays and a note says why."""
+        info = self._store.rag_chunks_info(candidates)
+        candidates = [cid for cid in candidates if cid in info]
+        slug, model = str(self._config.get("RAG_RERANK_PROVIDER")), str(self._config.get("RAG_RERANK_MODEL"))
+        began = time.monotonic()
+        provider = self._providers.by_slug(slug)
+        try:
+            if provider is None or not provider.enabled:
+                raise RagError(f"the rerank provider {slug!r} is missing or disabled")
+            documents = [f"{info[c]['title']} {info[c]['heading']}\n{info[c]['text']}"[:RERANK_CHARS] for c in candidates]
+            pairs = self.embedder.rerank(rerank_target(provider, model, self._providers.usable_key(provider)), query, documents, len(documents))
+        except (EmbeddingError, RagError, ProviderError) as exc:
+            if provider is not None:
+                self._record_usage(provider.id, slug, model, 0, int((time.monotonic() - began) * 1000), "error", str(exc))
+            notes.append(f"reranking skipped: {exc}")
+            return candidates, fused
+        self._record_usage(provider.id, slug, model, 0, int((time.monotonic() - began) * 1000), "success", "")
+        order = [candidates[i] for i, _ in pairs]
+        seen = set(order)
+        order += [c for c in candidates if c not in seen]       # a model that returned fewer results than candidates
+        return order, {candidates[i]: score for i, score in pairs} | {c: min((sc for _, sc in pairs), default=0.0) - 1e-6 for c in candidates if c not in {candidates[i] for i, _ in pairs}}
 
     def _dense(self, query: str, rows: list[dict[str, Any]], wanted: int, notes: list[str]) -> list[tuple[int, float]]:
         """Exact cosine candidates from every collection that has vectors for its current model."""

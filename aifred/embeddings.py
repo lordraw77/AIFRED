@@ -132,10 +132,14 @@ class EmbeddingClient:
         headers = {"Content-Type": "application/json", "Accept": "application/json", **target.headers}
         if target.api_key:
             headers["Authorization"] = f"Bearer {target.api_key}"
+        return self._retrying(lambda: self._once(target, payload, headers, len(texts)))
+
+    def _retrying(self, call: Callable[[], Any]) -> Any:
+        """Run ``call``, retrying transient failures with backoff (quota errors are not retried)."""
         last: EmbeddingError | None = None
         for attempt in range(self._attempts):
             try:
-                return self._once(target, payload, headers, len(texts))
+                return call()
             except EmbeddingError as exc:
                 last = exc
                 if not exc.transient or exc.outcome is Outcome.QUOTA or attempt == self._attempts - 1:
@@ -145,6 +149,40 @@ class EmbeddingClient:
                 self._sleep(wait)
         assert last is not None  # pragma: no cover - the loop returns or raises
         raise last
+
+    def rerank(self, target: EmbedTarget, query: str, documents: list[str], top_n: int | None = None) -> list[tuple[int, float]]:
+        """Score documents against a query with a ``/rerank`` endpoint (Jina, Cohere, Voyage and vLLM share this shape).
+
+        Returns:
+            ``(index into documents, relevance score)`` pairs, best first.
+
+        Raises:
+            EmbeddingError: On a permanent failure, or a transient one that outlasted the retries.
+        """
+        payload = {"model": target.model, "query": query, "documents": documents, "top_n": top_n or len(documents)}
+        headers = {"Content-Type": "application/json", "Accept": "application/json", **target.headers}
+        if target.api_key:
+            headers["Authorization"] = f"Bearer {target.api_key}"
+        return self._retrying(lambda: self._rerank_once(target, payload, headers, len(documents)))
+
+    def _rerank_once(self, target: EmbedTarget, payload: dict[str, Any], headers: dict[str, str], count: int) -> list[tuple[int, float]]:
+        try:
+            with self._factory(target) as client:
+                response = client.post(target.url, json=payload, headers=headers)
+        except httpx.HTTPError as exc:
+            err = classify_exception(exc)
+            raise EmbeddingError(str(err), err.outcome) from None
+        if response.status_code >= 400:
+            err = classify_http(response.status_code, response.text, response.headers)
+            raise EmbeddingError(str(err), err.outcome, err.retry_after)
+        try:
+            results = response.json()["results"]
+            pairs = [(int(r["index"]), float(r.get("relevance_score", r.get("score")))) for r in results]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise EmbeddingError("the rerank endpoint answered with an unexpected body", Outcome.FATAL) from None
+        if not pairs or any(not 0 <= i < count or not math.isfinite(sc) for i, sc in pairs) or len({i for i, _ in pairs}) != len(pairs):
+            raise EmbeddingError("the rerank endpoint returned invalid indexes or scores", Outcome.FATAL)
+        return sorted(pairs, key=lambda item: -item[1])
 
     def _once(self, target: EmbedTarget, payload: dict[str, Any], headers: dict[str, str], count: int) -> EmbedResult:
         try:

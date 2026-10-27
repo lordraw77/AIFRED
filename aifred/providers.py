@@ -758,6 +758,14 @@ def embed_target(provider: Provider, model: str, api_key: str | None) -> EmbedTa
     )
 
 
+def rerank_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:
+    """Where to call a provider's ``/rerank`` endpoint (the shape Jina, Cohere, Voyage and vLLM share)."""
+    return EmbedTarget(
+        url=f"{provider.base_url.rstrip('/')}/rerank", model=model, api_key=api_key, headers=provider.headers,
+        verify=provider.verify_tls, connect=provider.connect, total=min(provider.total, max(provider.first_token * 2, 60.0)),
+    )
+
+
 def _json_object(text: str) -> bool:
     try:
         return isinstance(json.loads(text), dict)

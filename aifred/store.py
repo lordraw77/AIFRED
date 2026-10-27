@@ -421,6 +421,29 @@ _MIGRATIONS: list[str] = [
     ALTER TABLE sessions ADD COLUMN summary TEXT NOT NULL DEFAULT '';
     ALTER TABLE sessions ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0;
     """,
+    # 10: golden questions and evaluation runs for the knowledge base
+    """
+    CREATE TABLE rag_golden (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question TEXT NOT NULL,
+        collection TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT '',
+        phrase TEXT NOT NULL DEFAULT '',
+        created REAL NOT NULL
+    );
+    CREATE TABLE rag_evals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        variant TEXT NOT NULL,
+        k INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        recall REAL NOT NULL,
+        mrr REAL NOT NULL,
+        misses TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX idx_rag_evals ON rag_evals(id);
+    """,
 ]
 
 

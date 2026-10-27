@@ -138,6 +138,8 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `RAG_CHUNK_CHARS` / `RAG_CHUNK_OVERLAP` | `1200` / `150` | Target chunk size and overlap (characters) |
 | `RAG_EMBED_BATCH` | `16` | Chunks per embedding request |
 | `RAG_TOP_K` | `5` | Results returned by default (1–10) |
+| `RAG_RERANK_PROVIDER`, `RAG_RERANK_MODEL` | empty | A rerank model on a provider that offers `/rerank` (Jina, Cohere, Voyage, vLLM); empty: no reranking |
+| `RAG_RERANK_CANDIDATES` | `20` | Fused candidates the rerank model re-orders |
 | `RAG_MIN_SIMILARITY` | `0.30` | Dense candidates below this cosine similarity are dropped |
 | `RAG_MAX_DOCUMENT_BYTES` | `5242880` | Largest document accepted (5 MB) |
 | `RAG_MAX_CHUNKS` | `100000` | Cap on chunks in the whole knowledge base (disk; memory is governed by `RAG_CACHE_MB`, 9.4) |
@@ -559,6 +561,8 @@ Memory tells the agent about the user; **instructions** tell it about its capabi
 
 ### 9.4 Local knowledge base (RAG)
 
+**Measuring retrieval (built on 27 October 2026).** *Golden questions* (migration 10) say where an answer lives: a document source or part of its name, a phrase the passage must contain, or both; the model can write one per random passage (the passages go to the `assist` route's provider; the admin keeps the good ones). *Run evaluation* searches every question with `hybrid`, `dense`, `keyword` and, when a rerank model is set, `hybrid+rerank`, and reports recall@k and the mean reciprocal rank; each result is stored with a label so the next run shows the change. API: `GET/POST /api/rag/golden`, `DELETE /api/rag/golden/{id}`, `POST /api/rag/golden/suggest`, `POST /api/rag/evaluate`, `GET /api/rag/evals`. The rerank model is an HTTP `/rerank` endpoint, not a local model: no new dependency.
+
 The agent can answer from the admin's own documents (manuals, runbooks, notes, exported pages) through a **local knowledge base**: documents are split into chunks, embedded, stored in the same SQLite database and found again with a hybrid search. Memory (7) keeps a few durable facts and skills (8) keep procedures; the knowledge base holds reference material that is too large for either. Nothing new runs beside the container: no vector database and no extra service.
 
 #### Collections and documents
@@ -585,7 +589,7 @@ Computed through the provider's OpenAI-compatible `POST /embeddings` with the mo
 2. **dense candidates:** exact cosine similarity against the collection's vectors, the best `4 × limit`, dropping anything below `RAG_MIN_SIMILARITY`;
 3. **keyword candidates:** FTS5 BM25 over the chunk text and headings with an OR-of-quoted-terms query (accents folded), the best `4 × limit`. One-letter words and common English and Italian function words are left out of that query, because in a small corpus they outrank the real match; if nothing else is left the plain terms are used, and identifiers and numbers are never dropped;
 4. the two lists are fused with **reciprocal rank fusion** (the sum of `1 / (60 + rank)`), which needs no calibration between cosine and BM25 scores;
-5. adjacent chunks of the same document are merged and the best `limit` results (default `RAG_TOP_K`) are returned, each with collection, document title, heading path, chunk number and text (about 1,500 characters at most).
+5. when a rerank model is configured, the best `RAG_RERANK_CANDIDATES` fused candidates are re-ordered by `POST {provider}/rerank` (query and passages, a score per passage); if the call fails or answers with invalid indexes the fused order is kept and a note says reranking was skipped; adjacent chunks of the same document are merged and the best `limit` results (default `RAG_TOP_K`) are returned, each with collection, document title, heading path, chunk number and text (about 1,500 characters at most).
 
 If the embedding service is unreachable, or the collection is `stale`, the search falls back to keywords only and says so in the result. Exact search keeps results reproducible and needs no index to maintain. It scores a collection with a single matrix product using `numpy` (ADR-003). Memory is bounded and configurable: the matrices of recently searched collections are kept in an LRU cache of at most `RAG_CACHE_MB` megabytes (default 512), built by streaming rows into a preallocated array so that the peak is one matrix plus one batch; a collection that does not fit is scanned straight from the database in blocks, which is slower but needs constant memory. A 768-dimension chunk takes 3 KB of vector, so the default cap of 100,000 chunks is about 307 MB and fits the cache. The container limit is `AIFRED_MEM_LIMIT` (default 1 GB, raised from 512 MB); raise it together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS`.
 
@@ -959,7 +963,6 @@ Knowledge base, second step:
 | Low | Description assistant: the rest | `/assist` command, streamed progress, memory and session inputs (design in 14.1) |
 | Medium | Interactive approval for the terminal | Inline buttons on Telegram |
 | Low | Knowledge base: more formats | Legacy `.doc`, `.xls`, `.ppt`, e-mail and EPUB; until then convert to a supported format |
-| Medium | Knowledge base: reranking and evaluation | Cross-encoder rerank of the top 20, and a set of golden questions to measure recall before and after a change |
 | Low | Knowledge base: approximate index | `sqlite-vec` or an HNSW index beyond about 500,000 chunks (ADR-003) |
 | Low | Knowledge base: per-gateway collections | Let chosen collections reach the open Telegram bot |
 | Low | Knowledge base: folder watcher | inotify instead of periodic scans |

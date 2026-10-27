@@ -10,6 +10,8 @@ from fastapi import Response, APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
+from aifred import rag_eval
+from aifred.instructions import InstructionError
 from aifred.rag import RagError
 
 logger = logging.getLogger(__name__)
@@ -215,7 +217,80 @@ async def search(body: SearchIn, _: AdminDep, services: ServicesDep) -> dict[str
         "hits": [
             {"collection": h.collection, "source": h.source, "title": h.title, "heading": h.heading, "chunks": h.ords, "text": h.text,
              "score": round(h.score, 5), "dense_rank": h.dense_rank, "keyword_rank": h.keyword_rank, "flagged": h.flagged,
-             "machine_read": h.vision, "page": h.page}
+             "machine_read": h.vision, "page": h.page, "rerank": None if h.rerank is None else round(h.rerank, 4)}
             for h in result.hits
         ],
     }
+
+
+# Retrieval quality: golden questions and evaluation runs
+
+
+class GoldenIn(BaseModel):
+    """A question and where its answer lives: a document source (or part of its name), a phrase, or both."""
+
+    question: str = Field(min_length=3, max_length=300)
+    collection: str = Field(default="", max_length=64)
+    source: str = Field(default="", max_length=300)
+    phrase: str = Field(default="", max_length=200)
+
+
+class EvalIn(BaseModel):
+    """Which results count (the first ``k``) and a label to tell runs apart."""
+
+    k: int = Field(default=5, ge=1, le=10)
+    label: str = Field(default="", max_length=60)
+
+
+@router.get("/api/rag/golden")
+def golden_list(_: AdminDep, services: ServicesDep) -> list[dict[str, Any]]:
+    """The golden questions."""
+    return services.store.rag_golden_list()
+
+
+@router.post("/api/rag/golden")
+def golden_add(body: GoldenIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Add a golden question; at least a source or a phrase says where the answer is."""
+    if not body.source.strip() and not body.phrase.strip():
+        raise _refuse(RagError("say where the answer is: a document name or a phrase from the passage"))
+    gid = services.store.rag_golden_add(body.question.strip(), body.collection.strip(), body.source.strip(), body.phrase.strip())
+    return {"id": gid}
+
+
+@router.delete("/api/rag/golden/{golden_id}")
+def golden_delete(golden_id: int, _: AdminDep, services: ServicesDep) -> Ok:
+    """Remove a golden question."""
+    if not services.store.rag_golden_delete(golden_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such question")
+    return Ok()
+
+
+@router.post("/api/rag/golden/suggest")
+async def golden_suggest(_: AdminDep, services: ServicesDep, count: int = Query(6, ge=1, le=12), collection: str | None = None) -> list[dict[str, Any]]:
+    """Let the model write questions from random passages. Returned only: the admin keeps the ones worth keeping.
+
+    The passages are sent to the ``assist`` route's provider.
+    """
+    _require_enabled(services)
+    chunks = await asyncio.to_thread(services.store.rag_sample_chunks, count, collection)
+    try:
+        return await services.assist.golden_questions(chunks)
+    except InstructionError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+
+
+@router.post("/api/rag/evaluate")
+async def evaluate_search(body: EvalIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Run the golden questions through each way of searching and store the scores for later comparison."""
+    _require_enabled(services)
+    try:
+        results = await asyncio.to_thread(rag_eval.evaluate, services.rag, body.k, body.label.strip())
+    except RagError as exc:
+        raise _refuse(exc) from None
+    return {"results": results, "reranking": services.rag.reranking}
+
+
+@router.get("/api/rag/evals")
+def evals(_: AdminDep, services: ServicesDep, limit: int = Query(60, ge=1, le=300)) -> list[dict[str, Any]]:
+    """Stored evaluation results, newest first."""
+    return services.store.rag_eval_list(limit)

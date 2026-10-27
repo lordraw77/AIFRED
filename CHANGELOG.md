@@ -2,6 +2,13 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [Unreleased]
+
+### Added
+- **Description assistant, rest.** Progress is streamed while a test runs (`POST /api/assist/evaluate/stream`), the `/assist <scope> [hint]` chat command drafts or improves an instruction and scores it without saving anything, and Generate/Improve can optionally use your profile and notes (names, address ranges) when you tick the box.
+- **Knowledge base: reranking.** A rerank model (`RAG_RERANK_PROVIDER`, `RAG_RERANK_MODEL`, any `/rerank` endpoint: Jina, Cohere, Voyage, vLLM) re-orders the best 20 candidates; if it fails the normal order is kept and the result says so.
+- **Knowledge base: evaluation.** Golden questions (written by hand or by the model from your documents) and a *Run evaluation* button that compares `hybrid`, `dense`, `keyword` and `hybrid+rerank` by recall and MRR and keeps the history to show whether a change helped. Migration 10.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added
