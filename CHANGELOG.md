@@ -2,6 +2,11 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [Unreleased]
+
+### Added
+- Switches to turn a toolset on or off per gateway (CLI, Web, API, Telegram, Scheduled) or everywhere, so `TOOLSETS` and `TOOLSETS_<GATEWAY>` no longer have to be edited by hand: on the Tools page (every cell of the matrix, which now has a Scheduled column), on each MCP server, on the Agents page (delegation) and on the Schedules page (the `cron` tool). A gateway without its own list gets a copy of the shared one with the change, so the others do not move. `GET`/`PUT /api/toolsets/{name}`.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added

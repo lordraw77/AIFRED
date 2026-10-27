@@ -1,4 +1,5 @@
 // Schedules: recurring tasks the agent runs on its own, with the result delivered on Telegram.
+import { toolsetSwitches } from "../toolsets.js";
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
 
 const STATUS = { ok: "ok", error: "err", running: "warn", missed: "warn" };
@@ -23,7 +24,7 @@ export default {
       if (!data.tasks.length && editing === null) inner.append(empty("No scheduled task yet. A task is a prompt the agent runs by itself, for example a news summary every morning."));
       if (editing === "") inner.append(form(null, data));
       for (const t of data.tasks) inner.append(editing === t.name ? form(t, data) : card(t));
-      body.append(head, h("p", { class: "hint" }, `Times use ${data.timezone || "the server's time zone"} (SCHEDULER_TIMEZONE). Runs are unattended and use only the toolsets in TOOLSETS_CRON. The model can propose tasks in a chat, but they wait in Journey for your approval.`));
+      body.append(head, h("div", { class: "stack" }, h("div", { class: "label" }, "Let the assistant list, run, pause and propose tasks (toolset cron)"), toolsetSwitches("cron")), h("p", { class: "hint" }, `Times use ${data.timezone || "the server's time zone"} (SCHEDULER_TIMEZONE). Runs are unattended and use only the toolsets switched on in the Scheduled column of the Tools page. The model can propose tasks in a chat, but they wait in Journey for your approval.`));
     }
 
     function card(t) {

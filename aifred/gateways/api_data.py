@@ -137,7 +137,7 @@ def delete_skill(name: str, _: AdminDep, services: ServicesDep) -> Ok:
 def list_tools(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Toolsets with their tools, which gateways enable them and how often each tool was called since the start."""
     registry = services.tools
-    gateways = {name: SOURCE_TO_GATEWAY[name] for name in ("cli", "web", "api", "telegram")}
+    gateways = {name: SOURCE_TO_GATEWAY[name] for name in ("cli", "web", "api", "telegram", "cron")}
     enabled = {g: registry.enabled_toolsets(services, source) for source, g in gateways.items()}
     ctx = ToolContext(services, "dashboard", "web")
     toolsets: dict[str, list[dict[str, Any]]] = {}
@@ -156,6 +156,65 @@ def list_tools(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
             for name, tools in sorted(toolsets.items())
         ],
     }
+
+
+TOGGLE_GATEWAYS = {name: SOURCE_TO_GATEWAY[name] for name in ("cli", "web", "api", "telegram", "cron")}
+
+
+class ToolsetSwitch(BaseModel):
+    """Turn a toolset on or off for some gateways; ``ALL`` changes the shared ``TOOLSETS`` list."""
+
+    gateways: list[str] = Field(min_length=1, max_length=6)
+    on: bool
+
+
+def _toolset_name(name: str, services: Any) -> str:
+    known = {t.toolset for t in services.tools.all()} - INTERNAL_TOOLSETS
+    servers = {f"mcp:{x.name}" for x in services.mcp.list()}
+    if name not in known | servers | {"mcp", "agents", "cron"}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no such toolset: {name}")
+    return name
+
+
+@router.get("/api/toolsets/{name:path}")
+def toolset_state(name: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """For which gateways a toolset is on (each gateway's own list, else the shared ``TOOLSETS``)."""
+    name = _toolset_name(name, services)
+    registry = services.tools
+    return {"name": name, "gateways": {g: registry.toolset_enabled(name, registry.enabled_toolsets(services, source)) for source, g in TOGGLE_GATEWAYS.items()}}
+
+
+@router.put("/api/toolsets/{name:path}")
+def toolset_switch(name: str, body: ToolsetSwitch, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Add a toolset to, or remove it from, the lists of the chosen gateways, so nobody edits TOOLSETS by hand.
+
+    A gateway without its own list gets one (a copy of the shared list with the change), so the other gateways do not move.
+    """
+    name = _toolset_name(name, services)
+    cfg = services.config
+    values: dict[str, list[str]] = {}
+    for gateway in dict.fromkeys(body.gateways):
+        if gateway == "ALL":
+            key = "TOOLSETS"
+            current = list(cfg.get(key))
+        elif gateway in TOGGLE_GATEWAYS.values():
+            key = f"TOOLSETS_{gateway}"
+            own = cfg.get(key)
+            current = list(own if own is not None else cfg.get("TOOLSETS"))
+        else:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown gateway: {gateway}")
+        if body.on and name not in current:
+            current.append(name)
+        elif not body.on:
+            if name.startswith("mcp:") and "mcp" in current:
+                raise HTTPException(status.HTTP_409_CONFLICT, f"{gateway} uses the whole mcp group; remove mcp on the Config page to choose servers one by one")
+            current = [x for x in current if x != name]
+        values[key] = current
+    try:
+        cfg.update(values)
+    except Exception as exc:  # SettingError: the list is not valid
+        raise _bad(exc) from None
+    return toolset_state(name, _, services)
 
 
 # Journal and approvals

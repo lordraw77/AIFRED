@@ -1,6 +1,7 @@
-// Tools: which toolsets are on for each gateway (read-only; change TOOLSETS on the Config page) and how often each tool was called.
+// Tools: which toolsets are on for each gateway (click a switch to change it) and how often each tool was called.
 import { attempt, badge, button, clear, empty, get, h, number, panel, post, put, del, skeleton, toast } from "../core.js";
 import { instructionEditor } from "../instr.js";
+import { toolsetSwitches } from "../toolsets.js";
 
 export default {
   async render(root, ctx) {
@@ -12,7 +13,7 @@ export default {
     const body = h("div", {});
     const reload = async () => { notes = await get("/api/instructions"); drawNotes(); };
     const notesEl = h("div", {});
-    root.append(h("p", { class: "hint" }, "A switch shows whether a toolset is on for a gateway. Change it with TOOLSETS and TOOLSETS_<GATEWAY> on the Config page. Counts are calls since the server started."), body);
+    root.append(h("p", { class: "hint" }, "Click a switch to turn a toolset on or off for one gateway; the lists on the Config page are updated for you. Counts are calls since the server started."), body);
 
     function draw() {
       clear(body);
@@ -20,7 +21,10 @@ export default {
       for (const ts of data.toolsets) {
         rows.push(h("tr", { class: "row-hover" },
           h("td", {}, h("button", { class: "btn btn-sm", type: "button", "aria-expanded": String(open.has(ts.name)), onclick: () => { open.has(ts.name) ? open.delete(ts.name) : open.add(ts.name); draw(); } }, ts.name), " ", h("span", { class: "muted" }, `${ts.tools.length} tools`)),
-          ...data.gateways.map((g) => h("td", {}, h("span", { class: `switch${ts.enabled[g] ? " on" : ""}`, role: "img", "aria-label": ts.enabled[g] ? "on" : "off" }), " ", h("span", { class: "muted mono" }, ts.enabled[g] ? "on" : "off"))),
+          ...data.gateways.map((g) => h("td", {}, h("button", {
+            class: "switch-btn", type: "button", role: "switch", "aria-checked": String(Boolean(ts.enabled[g])), "aria-label": `${ts.name} for ${g}`, title: `Turn ${ts.name} ${ts.enabled[g] ? "off" : "on"} for ${g}`,
+            onclick: async () => { if (await attempt(() => put(`/api/toolsets/${encodeURIComponent(ts.name).replace(/%3A/gi, ":")}`, { gateways: [g], on: !ts.enabled[g] }))) { data = await get("/api/tools"); draw(); } },
+          }, h("span", { class: `switch${ts.enabled[g] ? " on" : ""}` }), " ", h("span", { class: "muted mono" }, ts.enabled[g] ? "on" : "off")))),
           h("td", { class: "mono" }, number(ts.calls))));
         if (open.has(ts.name)) {
           rows.push(h("tr", {}, h("td", { colspan: String(data.gateways.length + 2) }, ts.tools.map((t) => h("div", { class: "row" },
