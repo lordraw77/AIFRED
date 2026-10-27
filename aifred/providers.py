@@ -19,6 +19,7 @@ import httpx
 
 from aifred.embeddings import EmbeddingClient, EmbeddingError, EmbedTarget, cosine
 from aifred.llm import (
+    patient_endpoint,
     Done,
     Endpoint,
     HttpFactory,
@@ -716,34 +717,36 @@ class ProviderService:
         return {"model_id": model_id, "ok": ok, "error": error, "latency_ms": int((time.monotonic() - started) * 1000)}
 
 
+VISION_TRIES = 2
 VISION_PROMPT = "What number is written in this image? Answer with the digits only."
 
 
 async def _vision_probe(svc: ProviderService, provider: Provider, model_id: str, key: str | None, thinking_control: str) -> tuple[bool, str]:
-    """Send a picture of a random number and check that the model reads it."""
+    """Show the model a picture of a random number and check that it reads it (two tries, with different numbers)."""
     import base64
 
     from aifred.testimage import digits_png, random_number
 
-    number = random_number()
-    image = base64.b64encode(digits_png(number)).decode("ascii")
-    endpoint = svc._endpoint(provider, model_id, key, thinking_control)
-    messages = [{"role": "user", "content": [
-        {"type": "text", "text": VISION_PROMPT},
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
-    ]}]
-    try:
-        async for event in stream_chat(endpoint, messages, None, temperature=0.0, http_factory=svc.http_factory):
-            if isinstance(event, Done):
-                digits = re.sub(r"\D", "", event.result.content)
-                if number in digits:
-                    return True, ""
-                return False, f"the model did not read the picture (it answered {event.result.content.strip()[:80]!r} instead of {number})"
-    except LLMError as exc:
-        return False, str(exc)
-    except asyncio.TimeoutError:
-        return False, "timed out"
-    return False, "the model gave no answer"
+    endpoint = patient_endpoint(svc._endpoint(provider, model_id, key, thinking_control))
+    error = "the model gave no answer"
+    for _ in range(VISION_TRIES):
+        number = random_number()
+        image = base64.b64encode(digits_png(number)).decode("ascii")
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": VISION_PROMPT},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
+        ]}]
+        try:
+            async for event in stream_chat(endpoint, messages, None, temperature=0.0, http_factory=svc.http_factory):
+                if isinstance(event, Done):
+                    if number in re.sub(r"\D", "", event.result.content):
+                        return True, ""
+                    error = f"the model did not read the picture (it answered {event.result.content.strip()[:80]!r} instead of {number})"
+        except LLMError as exc:
+            return False, str(exc)
+        except asyncio.TimeoutError:
+            return False, "timed out"
+    return False, error
 
 
 def embed_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:

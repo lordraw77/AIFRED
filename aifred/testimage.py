@@ -48,5 +48,6 @@ def digits_png(text: str) -> bytes:
 
 
 def random_number(digits: int = 4) -> str:
-    """A number whose digits cannot be guessed from a previous test."""
-    return "".join(random.SystemRandom().choice("123456789") for _ in range(digits))
+    """A number whose digits cannot be guessed from a previous test. The digits are all different: a small model
+    that reads "4885" as "485" has read the picture, it has only lost a repeated digit."""
+    return "".join(random.SystemRandom().sample("123456789", digits))

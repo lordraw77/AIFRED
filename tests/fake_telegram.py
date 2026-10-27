@@ -24,6 +24,7 @@ class FakeTelegram:
         actions: ``(chat_id, action)`` for every ``sendChatAction``.
         offsets: The ``offset`` of every ``getUpdates``.
         failures: Queued ``(status, body)`` answers for upcoming ``getUpdates`` calls.
+        hold: Seconds a ``getUpdates`` waits when nothing is queued (a real long poll holds for up to 50 s).
     """
 
     token: str = TOKEN
@@ -31,6 +32,7 @@ class FakeTelegram:
     actions: list[tuple[int, str]] = field(default_factory=list)
     offsets: list[int] = field(default_factory=list)
     failures: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
+    hold: float | None = None
     port: int = 0
     _updates: list[dict[str, Any]] = field(default_factory=list)
     _next: int = 1
@@ -73,7 +75,7 @@ class FakeTelegram:
                 if self.failures:
                     status, payload = self.failures.pop(0)
                     return JSONResponse(payload, status_code=status)
-                deadline = time.monotonic() + min(body.get("timeout", 0), 0.3)
+                deadline = time.monotonic() + (self.hold if self.hold is not None else min(body.get("timeout", 0), 0.3))
                 while True:
                     ready = [u for u in self._updates if u["update_id"] >= body["offset"]]
                     if ready or time.monotonic() > deadline:

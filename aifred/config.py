@@ -175,6 +175,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("RAG_MAX_IMAGE_BYTES", "int", 10_485_760, "knowledge", "Largest image accepted", minimum=1024, maximum=104_857_600),
         SettingSpec("RAG_MAX_PAGES", "int", 500, "knowledge", "Pages read from one PDF or presentation", minimum=1, maximum=100_000),
         SettingSpec("RAG_OCR_MIN_CHARS", "int", 40, "knowledge", "A PDF page with fewer characters is treated as a scan and read by the vision model", minimum=0, maximum=10_000),
+        SettingSpec("RAG_RENDER_MAX_SIDE", "int", 1600, "knowledge", "Longest side in pixels of a scanned PDF page sent to the vision model (lower it for slow local models)", minimum=300, maximum=4000),
         SettingSpec("RAG_PARSE_TIMEOUT", "int", 60, "knowledge", "Seconds the sandboxed parser may run for one file", minimum=5, maximum=3600),
         SettingSpec("RAG_PARSE_MEMORY_MB", "int", 768, "knowledge", "Address-space limit of the sandboxed parser (MB; Python with pypdf and the cryptography library already maps about 300)", minimum=64, maximum=16_384),
     ]

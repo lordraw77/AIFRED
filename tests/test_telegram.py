@@ -223,6 +223,14 @@ async def test_polling_answers_and_stores_the_offset(bot: TelegramGateway) -> No
     assert tg.texts(ADMIN) == ["polled"]
 
 
+async def test_the_gateway_is_running_as_soon_as_the_token_works(bot: TelegramGateway) -> None:
+    tg: FakeTelegram = bot.fake  # type: ignore[attr-defined]
+    tg.hold = 6.0  # the first getUpdates stays open like a real long poll
+    await bot.start()
+    await until(lambda: bot.status()["state"] == "running", seconds=3)  # long before that poll returns
+    assert bot.status()["bot"] == "aifred_bot" and tg.offsets == [0]
+
+
 async def test_bad_token_stops_polling_and_is_never_logged(bot: TelegramGateway, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
     bot._s.config.update({"TELEGRAM_TOKEN": "999:WRONG-SECRET"})

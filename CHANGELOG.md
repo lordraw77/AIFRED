@@ -2,6 +2,16 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.1.1] - 2026-10-27
+
+### Fixed
+- Telegram: the gateway reports `running` as soon as the bot token works instead of after the first long poll (up to 50 s).
+- Vision: reading an image is slow on hosted free tiers and local CPUs, so vision calls and the vision test allow at least 300 s to the first token (180 s of silence, 900 s in total) unless a route entry sets its own timeouts.
+- Vision test: the test picture uses four different digits and the model gets two tries, so a model that reads the picture is no longer failed for dropping a repeated digit.
+
+### Added
+- Setting `RAG_RENDER_MAX_SIDE` (default 1,600 pixels): the size of scanned PDF pages sent to the vision model; lower it for slow local models.
+
 ## [0.1.0] - 2026-10-27
 
 First public release.

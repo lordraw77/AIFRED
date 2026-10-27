@@ -383,9 +383,9 @@ def test_vision_test_and_route_rule(on: TestClient, fake_llm: Callable[[], FakeL
     assert ok["ok"] is True and ok["error"] == ""
     body = fake.requests[0].body["messages"][0]["content"]
     assert body[1]["image_url"]["url"].startswith("data:image/png;base64,") and "digits only" in body[0]["text"]
-    fake.queue(Text("I cannot see any picture."))
+    fake.queue(Text("I cannot see any picture."), Text("Still nothing."))
     bad = on.post(f"/api/providers/{p.id}/models/blind/vision-test").json()
-    assert bad["ok"] is False and "did not read the picture" in bad["error"]
+    assert bad["ok"] is False and "did not read the picture" in bad["error"] and "Still nothing" in bad["error"] and len(fake.requests) == 3  # two tries
     models = {m["model_id"]: m for m in on.get(f"/api/providers/{p.id}/models").json()}
     assert models["eyes"]["vision"] is True and models["eyes"]["vision_tested"] is True and models["blind"]["vision"] is False and models["blind"]["vision_error"]
     refused = on.put("/api/routes/vision", json={"entries": [{"provider": "vis", "model": "blind"}]})
@@ -393,7 +393,8 @@ def test_vision_test_and_route_rule(on: TestClient, fake_llm: Callable[[], FakeL
     assert on.put("/api/routes/vision", json={"entries": [{"provider": "vis", "model": "eyes"}]}).status_code == 200  # no tool-calling test needed here
     other = on.put("/api/routes/default", json={"entries": [{"provider": "vis", "model": "eyes"}]})
     assert other.status_code == 422 and "tool-calling test" in other.text  # a chat route still needs it
-    assert on.post(f"/api/providers/{p.id}/models/eyes/vision-test").status_code == 200
+    fake.queue(Text("485"), Text("It says 4821."))  # a first misreading does not fail a model that reads the second picture
+    assert on.post(f"/api/providers/{p.id}/models/eyes/vision-test").json()["ok"] is True
     emb = services.providers.save_models(p.id, [{"model_id": "embed-x", "kind": "embedding"}])
     assert emb and on.post(f"/api/providers/{p.id}/models/embed-x/vision-test").status_code == 422
 
@@ -416,3 +417,52 @@ def test_the_vision_route_is_hidden_from_the_openai_api(on: TestClient, fake_llm
     assert "vision" not in [m["id"] for m in models] and "default" in [m["id"] for m in models]
     refused = on.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": "vision", "messages": [{"role": "user", "content": "hi"}]})
     assert refused.status_code == 404 and "reserved" in refused.text
+
+
+def test_image_readers_get_more_time_than_chat(kb: KB, vision: FakeLLM) -> None:
+    from aifred.llm import VISION_PATIENCE, Endpoint, patient_endpoint
+
+    [entry] = kb.rag.vision.entries()
+    assert entry.provider.first_token == 120.0 and entry.timeouts["first_token"] == VISION_PATIENCE["first_token"] == 300.0  # a local provider
+    assert entry.timeouts["stall"] == 180.0 and entry.timeouts["total"] == 900.0
+    # what the admin set on the route entry itself wins
+    kb.services.llm.set_route("vision", [{"provider": "vis", "model": "v", "timeouts": {"first_token": 5, "total": 40}}])
+    [custom] = kb.rag.vision.entries()
+    assert custom.timeouts["first_token"] == 5 and custom.timeouts["total"] == 40 and custom.timeouts["stall"] == 180.0
+    # a provider that already waits longer keeps its own value
+    slow = kb.services.providers.create({"slug": "slow", "type": "local", "base_url": vision.url, "first_token_timeout": 400, "total_timeout": 900})
+    kb.services.providers.save_models(slow.id, [{"model_id": "v"}])
+    kb.services.store.model_set_vision_test(slow.id, "v", True)
+    kb.services.llm.set_route("vision", [{"provider": "slow", "model": "v"}])
+    [patient] = kb.rag.vision.entries()
+    assert patient.timeouts["first_token"] == 400 and patient.timeouts["total"] == 900
+    endpoint = Endpoint("p", "http://x", "m", None, {}, {}, True, 10.0, 30.0, 60.0, 300.0)
+    wide = patient_endpoint(endpoint)
+    assert (wide.first_token, wide.stall, wide.total) == (300.0, 180.0, 900.0) and wide.connect == 10.0
+
+
+def test_the_render_size_of_scanned_pages_is_configurable(kb: KB, vision: FakeLLM) -> None:
+    import struct
+
+    pdf = f.make_pdf([None])
+
+    def width_sent() -> int:
+        png = sent_image(vision)
+        return struct.unpack(">II", png[16:24])[0]
+
+    ingest(kb, "big.pdf", pdf)
+    assert width_sent() > 300
+    kb.services.config.update({"RAG_RENDER_MAX_SIDE": 300})
+    kb.rag.create_collection("small", "t")
+    kb.rag.add_document("small", "small.pdf", f.make_pdf([None, None]))  # a different file, so it is read again
+    kb.index()
+    assert all(max(struct.unpack(">II", sent_image(vision, i)[16:24])) <= 300 for i in (-1, -2))  # both new pages are small
+
+
+def test_the_test_picture_never_repeats_a_digit() -> None:
+    from aifred.testimage import digits_png, random_number
+
+    for _ in range(200):
+        number = random_number()
+        assert len(number) == 4 and len(set(number)) == 4 and "0" not in number
+    assert digits_png("4821").startswith(b"\x89PNG")
