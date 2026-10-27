@@ -12,9 +12,10 @@ import base64
 import hashlib
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from aifred.llm import LLMError
+from aifred.llm import VISION_PATIENCE, LLMError
 from aifred.router import RouteError, RouteExhausted
 
 if TYPE_CHECKING:
@@ -87,7 +88,16 @@ class VisionReader:
             entries = []
         if not entries:
             raise VisionUnavailable(f"no vision model is set: put a model that passed Test vision on the {self.route!r} route (Models page)")
-        return entries
+        return [self._patient(e) for e in entries]
+
+    @staticmethod
+    def _patient(entry: Any) -> Any:
+        """Allow slow image readers more time, except for what the admin set on the entry itself."""
+        timeouts = dict(entry.timeouts)
+        for key, floor in VISION_PATIENCE.items():
+            if key not in timeouts:
+                timeouts[key] = max(getattr(entry.provider, key), floor)
+        return replace(entry, timeouts=timeouts)
 
     def limit(self) -> int:
         """Images per day (0 means vision is off)."""

@@ -722,7 +722,7 @@ class RagService:
                 reasons = ""
                 for index, page in enumerate(parsed.get("scan_pages") or []):
                     try:
-                        rendered = self._sandbox({"cmd": "render", "page": page}, data)
+                        rendered = self._sandbox({"cmd": "render", "page": page, "max_side": int(self._config.get("RAG_RENDER_MAX_SIDE"))}, data)
                         text = self._read_image(rendered["image_b64"], rendered["mime"])
                     except VisionLimit as exc:
                         skipped = list(parsed["scan_pages"][index:])

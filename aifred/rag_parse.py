@@ -752,7 +752,7 @@ def run(command: dict[str, Any], data: bytes) -> dict[str, Any]:
         if command.get("cmd") == "render":
             if kind != "pdf":
                 raise ParseError("not a PDF")
-            return render_pdf_page(data, int(command.get("page", 1)))
+            return render_pdf_page(data, int(command.get("page", 1)), max(200, min(int(command.get("max_side", RENDER_MAX_SIDE)), 4000)))
         if kind is None:
             raise ParseError("the content is not a PDF, Office, OpenDocument or image file")
         if kind in IMAGE_KINDS:

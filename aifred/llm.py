@@ -309,6 +309,18 @@ class Endpoint:
     thinking_control: str = "none"
 
 
+VISION_PATIENCE = {"first_token": 300.0, "stall": 180.0, "total": 900.0}
+"""Reading an image is slow on hosted free tiers (22 to 78 s measured on NVIDIA, 3 to 4 minutes on a CPU-only Ollama) and nobody is waiting for it, so the
+vision reader and the vision test allow at least this long, unless a route entry sets its own timeouts."""
+
+
+def patient_endpoint(endpoint: Endpoint) -> Endpoint:
+    """The same endpoint with the timeouts raised to :data:`VISION_PATIENCE` where they are shorter."""
+    from dataclasses import replace
+
+    return replace(endpoint, **{k: max(getattr(endpoint, k), v) for k, v in VISION_PATIENCE.items()})
+
+
 HttpFactory = Callable[[Endpoint], httpx.AsyncClient]
 
 

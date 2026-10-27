@@ -189,6 +189,7 @@ class TelegramGateway:
                     return
             else:
                 self.bot = str(me.get("username", ""))
+                self.state = "running"  # the token works: do not wait for the first long poll (up to 50 s) to say so
                 logger.info("Telegram bot @%s is polling", self.bot)
             offset = int(await asyncio.to_thread(self._s.store.kv_get, OFFSET_KEY) or 0)
             while True:
