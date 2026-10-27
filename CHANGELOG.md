@@ -2,7 +2,7 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-27
 
 ### Added
 - **Description assistant.** Next to every instruction on the Tools and MCP pages: Generate, Improve and Shorten, and **Test**, which dry-runs the model's tool choice on about 8 test requests (written by the model or by you) with the real tool definitions and shows a score, pass or fail per request and the score of the saved text; **Refine and test** lets the model rewrite the text up to 3 times and keeps the best. No tool is executed and no memory or profile is sent. Accepting a tested text journals its score. Improve and Generate also on a sub-agent's description and role and on a skill's description. Settings `ASSIST_EVALUATIONS_PER_HOUR`; API `POST /api/assist/evaluate` and `/api/assist/improve`.
