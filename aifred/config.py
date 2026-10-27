@@ -132,6 +132,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("COOLDOWN_QUOTA", "int", 3600, "routing", "Default cooldown (s) after quota exhaustion", minimum=0, maximum=86400 * 31),
         SettingSpec("MAX_ITERATIONS", "int", 12, "agent", "Maximum tool rounds per request", minimum=1, maximum=100),
         SettingSpec("HISTORY_LIMIT", "int", 40, "agent", "History messages sent to the model", minimum=2, maximum=1000),
+        SettingSpec("ASSIST_EVALUATIONS_PER_HOUR", "int", 10, "agent", "How many instruction evaluations the dashboard may run an hour (each one calls the model many times)", minimum=1, maximum=1000),
         SettingSpec("COMPRESS_ENABLED", "bool", True, "agent", "Summarise the older part of a long conversation instead of sending it all"),
         SettingSpec("COMPRESS_TRIGGER_TOKENS", "int", 12000, "agent", "Estimated history size (tokens) that triggers a summary", minimum=1000, maximum=500000),
         SettingSpec("COMPRESS_KEEP_MESSAGES", "int", 8, "agent", "Latest messages kept word for word when summarising", minimum=2, maximum=200),

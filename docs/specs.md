@@ -108,6 +108,7 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `COOLDOWN_QUOTA` | `3600` | Default cooldown (s) after credit or quota exhaustion |
 | `MAX_ITERATIONS` | `12` | Maximum tool rounds per request |
 | `HISTORY_LIMIT` | `40` | History messages sent to the model |
+| `ASSIST_EVALUATIONS_PER_HOUR` | `10` | Instruction evaluations the dashboard may run an hour |
 | `COMPRESS_ENABLED` | `true` | Summarise the older part of a long conversation |
 | `COMPRESS_TRIGGER_TOKENS` | `12000` | Estimated history size (four characters per token) that triggers a summary |
 | `COMPRESS_KEEP_MESSAGES` | `8` | Latest messages kept word for word |
@@ -955,7 +956,7 @@ Knowledge base, second step:
 | Priority | Feature | Note |
 | --- | --- | --- |
 | High | Advanced MCP | OAuth with Client ID Metadata Documents, stdio transport, `subscriptions/listen`, `input_required` (elicitation) |
-| Medium | Description assistant | LLM-assisted, measured instruction editor; design in 14.1 |
+| Low | Description assistant: the rest | `/assist` command, streamed progress, memory and session inputs (design in 14.1) |
 | Medium | Interactive approval for the terminal | Inline buttons on Telegram |
 | Low | Knowledge base: more formats | Legacy `.doc`, `.xls`, `.ppt`, e-mail and EPUB; until then convert to a supported format |
 | Medium | Knowledge base: reranking and evaluation | Cross-encoder rerank of the top 20, and a set of golden questions to measure recall before and after a change |
@@ -969,7 +970,9 @@ Knowledge base, second step:
 
 The design below is kept for when the feature is scheduled; its route (`assist`), settings and acceptance criteria are added with it. Scheduled tasks (9.5) and sub-agents (9.6) are built.
 
-### 14.1 Description assistant (roadmap)
+### 14.1 Description assistant
+
+**Built on 27 October 2026, in part.** Generate, Improve and Shorten (buttons next to every instruction on the Tools and MCP pages, and next to a sub-agent's description and role and a skill's description), and Evaluate with automatic refinement (up to 3 rounds, the best score kept) for MCP servers, toolsets and tools. Drafts use the other notes and the admin's hint; evaluation dry-runs tool choice with a lean prompt (no memory, no profile) and never executes a tool; an accepted text is journaled with its score (`[test 7/8]`); evaluations are limited by `ASSIST_EVALUATIONS_PER_HOUR` (10) and counted in `llm_usage` under agent `assist`. API: `POST /api/instructions/suggest` (with `mode` and `current`), `POST /api/assist/improve`, `POST /api/assist/evaluate` (JSON, not streamed). **Not built:** the `/assist` chat command, progress streaming, and the optional inputs from curated memory and from recent sessions. The design below remains the reference for those.
 
 A good instruction decides whether the agent picks the right tool, so writing it is helped by the LLM and then **measured**. When implemented, the assistant replaces the simple Suggest button of 9.3 and serves every text that steers the agent: instructions for MCP servers, toolsets and tools; sub-agent `description` and `role` (9.6); skill descriptions (8).
 
@@ -1023,7 +1026,7 @@ Acceptance criteria when implemented:
 8. **One provider adapter, many presets.** Every provider is reached through an OpenAI-compatible chat endpoint; presets and a custom type avoid per-provider code, with small adapters only for quirks (6.1).
 9. **Failover is per request and not sticky.** Routes are ordered lists, cooldowns are tracked per entry and key, and the primary is retried once its cooldown ends (6.1).
 10. **Instructions are admin-authored, agent-suggested.** The agent may propose better instructions but never changes them itself (9.3).
-11. **Sub-agents and the description assistant were roadmap for v0.1** (decision of 25 October 2026); sub-agents were built on 27 October 2026 (9.6), one level deep and never widening privileges; the description assistant remains a design (14.1).
+11. **Sub-agents and the description assistant were roadmap for v0.1** (decision of 25 October 2026); sub-agents were built on 27 October 2026 (9.6), one level deep and never widening privileges; the description assistant was built in part on 27 October 2026 (14.1).
 12. **The open Telegram bot is kept, restricted** (decision of 25 October 2026): no memory or profile, own-chat search, read-only skills, web only (10.2).
 13. **A local knowledge base is part of v0.1** (request of 26 October 2026): SQLite-only storage, hybrid retrieval, text formats, admin-only ingestion (9.4).
 14. **The agent reads the knowledge base and never writes it.** Poisoning its own future answers would otherwise be one tool call away (9.4).

@@ -19,6 +19,7 @@ class InstructionIn(BaseModel):
 
     text: str = Field(min_length=1, max_length=4000)
     enabled: bool = True
+    score: str = Field(default="", max_length=20, pattern=r"^(\d{1,2}/\d{1,2})?$")   # "7/8": the evaluation score the text had when accepted
 
 
 class ServerDraft(BaseModel):
@@ -37,6 +38,35 @@ class SuggestIn(BaseModel):
     scope: str
     hint: str = Field(default="", max_length=500)
     server: ServerDraft | None = None
+    mode: str = "generate"
+    current: str = Field(default="", max_length=4000)
+
+
+class CaseIn(BaseModel):
+    """One test request and what the assistant should do with it."""
+
+    request: str = Field(min_length=1, max_length=300)
+    expect: str = Field(pattern="^(this|other|none)$")
+
+
+class ImproveIn(BaseModel):
+    """A sub-agent or skill text to draft, rewrite or shorten; ``context`` is what the draft may be based on."""
+
+    kind: str
+    mode: str = "improve"
+    text: str = Field(default="", max_length=4000)
+    context: str = Field(default="", max_length=3000)
+    hint: str = Field(default="", max_length=500)
+
+
+class EvaluateIn(BaseModel):
+    """An instruction to test; ``cases`` are written when omitted and ``rounds`` refine it (0 to 3)."""
+
+    scope: str
+    text: str = Field(min_length=1, max_length=4000)
+    cases: list[CaseIn] | None = Field(default=None, max_length=12)
+    rounds: int = Field(default=0, ge=0, le=3)
+    hint: str = Field(default="", max_length=500)
 
 
 def _bad(exc: Exception, code: int = status.HTTP_422_UNPROCESSABLE_CONTENT) -> HTTPException:
@@ -63,12 +93,30 @@ async def suggest(body: SuggestIn, _: AdminDep, services: ServicesDep) -> dict[s
             if not result["ok"]:
                 raise InstructionError(f"cannot reach the server to read its tools: {result['error']}")
             tools = result["tool_info"]
-        return await services.instructions.suggest(body.scope, body.hint, tools)
+        return await services.instructions.suggest(body.scope, body.hint, tools, mode=body.mode, current=body.current)
     except InstructionError as exc:
         raise _bad(exc) from None
     except VaultError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"the secret store is unavailable: {exc}") from None
     except ValueError as exc:  # McpConfigError from the draft's fields
+        raise _bad(exc) from None
+
+
+@router.post("/api/assist/evaluate")
+async def evaluate(body: EvaluateIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Score an instruction by dry-running the model's tool choice (no tool is executed); optionally refine it. Nothing is saved."""
+    try:
+        return await services.assist.evaluate(body.scope, body.text, [c.model_dump() for c in body.cases] if body.cases else None, body.rounds, body.hint)
+    except InstructionError as exc:
+        raise _bad(exc) from None
+
+
+@router.post("/api/assist/improve")
+async def improve(body: ImproveIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Draft, rewrite or shorten a sub-agent description or role, or a skill description. The draft is returned, never saved."""
+    try:
+        return await services.assist.improve(body.kind, body.mode, body.text, body.context, body.hint)
+    except InstructionError as exc:
         raise _bad(exc) from None
 
 
@@ -96,7 +144,7 @@ def get_instruction(scope: str, _: AdminDep, services: ServicesDep) -> dict[str,
 def put_instruction(scope: str, body: InstructionIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Create or replace an instruction (journaled; undo from the Journey page)."""
     try:
-        services.instructions.set(scope, body.text, enabled=body.enabled)
+        services.instructions.set(scope, body.text, enabled=body.enabled, score=body.score)
     except InstructionError as exc:
         raise _bad(exc) from None
     services.agent.reset_all_prompts()

@@ -1,5 +1,6 @@
 // Agents: named sub-agents the main agent can hand tasks to, each with its own role, model route, toolsets and limits.
 import { toolsetSwitches } from "../toolsets.js";
+import { assistButtons } from "../assist.js";
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
 
 const STATUS = { ok: "ok", error: "err", running: "warn" };
@@ -98,7 +99,9 @@ export default {
       });
       return h("div", { class: "item stack" },
         field("Name", name), field("What it is for", description, "One line the main assistant reads to decide when to hand a task over."),
+        assistButtons({ kind: "agent.description", getText: () => description.value, setText: (t) => { description.value = t; }, getContext: () => `Agent name: ${name.value}\nRole: ${role.value.slice(0, 800)}\nToolsets: ${list(toolsets).join(", ")}` }),
         field("Role", role, "The agent's instructions. It replaces the main persona and sees nothing of the conversation but the task."),
+        assistButtons({ kind: "agent.role", shorten: true, getText: () => role.value, setText: (t) => { role.value = t; }, getContext: () => `Agent name: ${name.value}\nWhat it is for: ${description.value}\nToolsets: ${list(toolsets).join(", ")}` }),
         field("Model route", route), field("Toolsets", toolsets, `Choose from: ${data.toolsets.join(", ")}, mcp:<server>. Limited to what the calling gateway has.`),
         field("Skills", skills, `Preloaded into its prompt. Available: ${data.skills.join(", ") || "none yet"}.`),
         field("Memory", memory, "none: no access; read: sees your notes and profile; write: may also save (WRITE_APPROVAL applies)."),
