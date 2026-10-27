@@ -14,6 +14,7 @@ import json
 import re
 import time
 from collections import deque
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from aifred.instructions import MAX_TEXT, InstructionError, first_sentence
@@ -179,7 +180,10 @@ class AssistService:
             warnings.append("the draft is very short")
         return {"draft": draft, "provider": entry.provider.slug, "model": entry.model, "warnings": warnings}
 
-    async def evaluate(self, scope: str, text: str, cases: list[dict[str, str]] | None = None, rounds: int = 0, hint: str = "") -> dict[str, Any]:
+    async def evaluate(
+        self, scope: str, text: str, cases: list[dict[str, str]] | None = None, rounds: int = 0, hint: str = "",
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """Score an instruction by dry-running tool choice, optionally refining it.
 
         Args:
@@ -188,10 +192,12 @@ class AssistService:
             cases: Test requests as ``{"request", "expect"}`` (expect ``this``, ``other`` or ``none``); generated when omitted.
             rounds: Refinement rounds (0 to 3); the best-scoring text is returned, never a worse one.
             hint: The admin's hint, used to write the test requests.
+            progress: Called with ``{"step": ..., ...}`` as the work advances (cases written, each scoring pass, each refinement).
 
         Raises:
             InstructionError: On an invalid input, no model, no tools of the target on for the web chat, or the rate limit.
         """
+        note = progress or (lambda _event: None)
         self._s.instructions.check(scope, text)
         rounds = max(0, min(int(rounds), MAX_ROUNDS))
         s = self._s
@@ -202,30 +208,37 @@ class AssistService:
         entries = self._entries()
         self._take_slot()
         if cases is None:
+            note({"step": "writing test requests"})
             cases = await self._cases(entries, scope, hint)
         cases = [{"request": c["request"].strip()[:300], "expect": c["expect"]} for c in cases[:MAX_CASES] if c.get("expect") in EXPECT and str(c.get("request", "")).strip()]
         if not cases:
             raise InstructionError("there are no valid test requests")
 
+        note({"step": "cases", "count": len(cases)})
         stored = s.instructions.get(scope)
         baseline = None
         if stored and stored["enabled"] and stored["text"].strip() != text.strip():
+            note({"step": "scoring the saved text"})
             graded = await self._score(entries, ctx, tools, scope, None, cases)
             baseline = [sum(r["passed"] for r in graded), len(graded)]
+        note({"step": "scoring the text", "round": 0})
         best_text, best = text.strip(), await self._score(entries, ctx, tools, scope, text.strip(), cases)
         history = [sum(r["passed"] for r in best)]
+        note({"step": "scored", "round": 0, "score": [history[0], len(best)]})
         used = 0
         for _ in range(rounds):
             failures = [r for r in best if not r["passed"]]
             if not failures:
                 break
             used += 1
+            note({"step": "refining", "round": used, "failures": len(failures)})
             draft = await self._refine(entries, scope, best_text, failures)
             if not draft:
                 history.append(history[-1])
                 continue
             graded = await self._score(entries, ctx, tools, scope, draft, cases)
             history.append(sum(r["passed"] for r in graded))
+            note({"step": "scored", "round": used, "score": [history[-1], len(graded)]})
             if history[-1] > sum(r["passed"] for r in best):
                 best_text, best = draft, graded
         entry = entries[0]

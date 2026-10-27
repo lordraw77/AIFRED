@@ -24,6 +24,7 @@ DRAFT_TARGET = 600
 SUGGEST_PROMPT = """You write the short note that tells an AI assistant what a group of tools is FOR, so it picks the right tool without being told.
 Write plain text, at most 600 characters, in the language of the admin's hint (English if there is none), with these parts in this order: what it gives access to; "Use it when": the kinds of request it fits; "Do not use it for": near misses that belong to another tool; key names, address ranges or limits.
 Base it ONLY on the facts given below. Do not invent capabilities. State how it differs from the other notes if they overlap. Reply with the note only, no preamble, no Markdown fences."""
+MEMORY_CHARS = 1500
 MODES = ("generate", "improve", "shorten")
 MODE_PROMPTS = {
     "generate": "",
@@ -254,6 +255,7 @@ class InstructionService:
 
     async def suggest(
         self, scope: str, hint: str = "", tools: list[dict[str, Any]] | None = None, *, mode: str = "generate", current: str = "",
+        use_memory: bool = False,
     ) -> dict[str, Any]:
         """Ask the model for a draft instruction; nothing is saved.
 
@@ -264,6 +266,8 @@ class InstructionService:
             mode: ``generate`` (from scratch), ``improve`` (rewrite ``current``, keeping what is right) or ``shorten``
                 (cut ``current`` to the target length without losing when to use it).
             current: The text being improved or shortened.
+            use_memory: Also give the model the owner's profile and curated notes (names, address ranges). Off by default
+                because that text leaves the machine when the route is external.
 
         Raises:
             InstructionError: If there is nothing to base a draft on, or no model is available.
@@ -285,6 +289,10 @@ class InstructionService:
                 f"Other notes already written:\n{chr(10).join(others) or '(none)'}")
         if mode != "generate":
             user += f"\n\nCurrent note to {mode}:\n{current.strip()[:MAX_TEXT]}"
+        if use_memory:
+            facts_text = "\n".join(f"{t.upper()}: {e}" for t in ("user", "memory") for e in s.memory.snapshot(t).entries)[:MEMORY_CHARS]
+            if facts_text:
+                user += f"\n\nWhat the assistant knows about its owner (use it for names and ranges; do not repeat private details):\n{facts_text}"
         try:
             try:
                 entries = s.llm.resolve("assist", "default")

@@ -214,3 +214,59 @@ def test_improve_api_needs_the_admin_and_validates(client: TestClient, api: Test
     assert TestClient(client.app).post("/api/assist/improve", json={"kind": "agent.role"}).status_code == 401
     assert api.post("/api/assist/improve", json={"kind": "bogus"}).status_code == 422
     assert api.post("/api/assist/improve", json={"kind": "agent.role", "mode": "improve"}).status_code == 422
+
+
+async def test_progress_events_follow_the_work(services: Services, llm_ready: FakeLLM) -> None:
+    events: list[dict[str, Any]] = []
+    llm_ready.queue(Text("a"), Text("b"), Text("c"))
+    await services.assist.evaluate("toolset:memory", "Notes.", CASES, progress=events.append)
+    assert [e["step"] for e in events] == ["cases", "scoring the text", "scored"] and events[-1]["score"] == [1, 3]
+
+
+def stream_events(response: Any) -> list[dict[str, Any]]:
+    return [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+
+
+def test_stream_endpoint_sends_progress_then_the_result(api: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake(scope: str, text: str, cases: Any, rounds: int, hint: str, progress: Any = None) -> dict[str, Any]:
+        progress({"step": "cases", "count": 3})
+        progress({"step": "scored", "round": 0, "score": [2, 3]})
+        return {"score": [2, 3], "text": text}
+
+    monkeypatch.setattr(api.app.state.services.assist, "evaluate", fake)  # type: ignore[attr-defined]
+    r = api.post("/api/assist/evaluate/stream", json={"scope": "toolset:memory", "text": "Notes."})
+    assert r.headers["content-type"].startswith("text/event-stream")
+    steps = [e["step"] for e in stream_events(r)]
+    assert steps == ["cases", "scored", "result"] and stream_events(r)[-1]["result"]["score"] == [2, 3]
+
+
+def test_stream_endpoint_reports_errors_in_the_stream(api: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake(*_: Any, **__: Any) -> dict[str, Any]:
+        raise InstructionError("no model is available")
+
+    monkeypatch.setattr(api.app.state.services.assist, "evaluate", fake)  # type: ignore[attr-defined]
+    events = stream_events(api.post("/api/assist/evaluate/stream", json={"scope": "toolset:memory", "text": "Notes."}))
+    assert events == [{"step": "error", "message": "no model is available"}]
+    assert TestClient(api.app).post("/api/assist/evaluate/stream", json={"scope": "toolset:memory", "text": "x"}).status_code == 401
+
+
+async def test_memory_reaches_the_draft_only_when_asked(services: Services, llm_ready: FakeLLM) -> None:
+    services.memory.add("user", "Owner lives on 10.70.0.0/21")
+    llm_ready.queue(Text("Draft one."), Text("Draft two."))
+    await services.instructions.suggest("toolset:memory", "", mode="generate")
+    await services.instructions.suggest("toolset:memory", "", mode="generate", use_memory=True)
+    assert "10.70.0.0/21" not in llm_ready.requests[0].body["messages"][1]["content"]
+    assert "10.70.0.0/21" in llm_ready.requests[1].body["messages"][1]["content"]
+
+
+async def test_assist_command_drafts_scores_and_saves_nothing(services: Services, llm_ready: FakeLLM) -> None:
+    from aifred.commands import Commands, Context
+
+    cases = [{"request": f"r{i}", "expect": "none"} for i in range(3)]
+    llm_ready.queue(Text("Keeps notes about the user."), Text(json.dumps(cases)), Text("a"), Text("b"), Text("c"))
+    reply = await Commands(services).run("/assist toolset:memory my notes", Context("cli:1", "cli"))
+    assert reply is not None and "Draft for toolset:memory" in reply.text and "Nothing was saved" in reply.text
+    assert services.instructions.get("toolset:memory") is None
+    usage = await Commands(services).run("/assist", Context("cli:1", "cli"))
+    assert usage is not None and "Usage: /assist" in usage.text
+    assert "assist" not in Commands(services).available(Context("tg:1", "telegram", restricted=True))

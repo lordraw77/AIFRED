@@ -1,7 +1,29 @@
 // The "What is this for?" editor: a text, the description assistant (Generate, Improve, Shorten, Test, Refine) whose drafts are only shown (nothing is saved until the admin accepts) and Save.
-import { attempt, badge, button, busy, clear, del, field, h, post, put, toast } from "./core.js";
+import { attempt, badge, button, busy, clear, del, field, h, post, put, state, toast } from "./core.js";
 
 const SOFT_LIMIT = 600;
+
+/** POST and read a stream of server-sent JSON events; calls onEvent for each and resolves with the last one. */
+async function stream(path, body, onEvent) {
+  const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrf }, body: JSON.stringify(body) });
+  if (response.status === 401) { state.onUnauthorized(); return null; }
+  if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(typeof err.detail === "string" ? err.detail : `Request failed (HTTP ${response.status})`); }
+  const reader = response.body.getReader(); const decoder = new TextDecoder();
+  let buffer = "", last = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+      const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
+      if (data) { try { last = JSON.parse(data); onEvent(last); } catch (e) { /* ignore a malformed event */ } }
+    }
+  }
+  return last;
+}
+const STEP = { "writing test requests": "Writing test requests…", "scoring the saved text": "Scoring the saved text…", "scoring the text": "Scoring this text…" };
 
 /**
  * @param {object} o
@@ -19,6 +41,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
   const counter = h("span", { class: "hint" });
   const hint = h("input", { type: "text", placeholder: "Hint for the draft, for example: my local Linux servers", maxlength: "500" });
   const draftBox = h("div", { class: "notice", hidden: true });
+  const memory = h("input", { type: "checkbox" });
   const update = () => { counter.textContent = `${area.value.length} characters`; counter.className = `hint${area.value.length > SOFT_LIMIT ? " over" : ""}`; };
   area.addEventListener("input", update); update();
 
@@ -26,7 +49,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
   const draft = async (mode, trigger) => {
     const server = draftServer ? draftServer() : null;
     if (draftServer && !server) return;
-    const body = { scope, hint: hint.value.trim(), mode, current: area.value };
+    const body = { scope, hint: hint.value.trim(), mode, current: area.value, use_memory: memory.checked };
     if (server) body.server = server;
     const r = await attempt(() => post("/api/instructions/suggest", body));
     if (!r) return;
@@ -52,8 +75,19 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
   const evaluateWith = async (rounds, trigger) => {
     if (!area.value.trim()) { toast("Write or generate a text first", "err"); return; }
     clear(resultBox); resultBox.hidden = false;
-    resultBox.append(h("div", { class: "hint" }, rounds ? "Testing and refining: the model is called many times, this can take a few minutes…" : "Testing: each request is sent to the model with the real tools; no tool is run…"));
-    const r = await attempt(() => post("/api/assist/evaluate", { scope, text: area.value, rounds, hint: hint.value.trim() }));
+    const progress = h("div", { class: "hint", "aria-live": "polite" }, "Starting…");
+    resultBox.append(progress, h("div", { class: "hint" }, "No tool is run; each request is sent to the model with the real tool definitions."));
+    let r = null;
+    try {
+      const last = await stream("/api/assist/evaluate/stream", { scope, text: area.value, rounds, hint: hint.value.trim() }, (ev) => {
+        if (ev.step === "cases") progress.textContent = `Testing ${ev.count} requests…`;
+        else if (ev.step === "scored") progress.textContent = `Round ${ev.round}: ${ev.score[0]}/${ev.score[1]}${ev.round < rounds ? ", refining…" : ""}`;
+        else if (ev.step === "refining") progress.textContent = `Refining (round ${ev.round}, ${ev.failures} failed)…`;
+        else if (STEP[ev.step]) progress.textContent = STEP[ev.step];
+      });
+      if (last && last.step === "error") toast(last.message, "err");
+      else if (last && last.step === "result") r = last.result;
+    } catch (err) { toast(err.message, "err"); }
     clear(resultBox);
     if (!r) { resultBox.hidden = true; return; }
     const score = `${r.score[0]}/${r.score[1]}`;
@@ -81,7 +115,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
 
   const node = h("div", { class: "stack" },
     area, h("div", { class: "row between" }, counter, h("label", { class: "check" }, on, "Use it in the prompt")),
-    h("div", { class: "row" }, hint, generate, improve, shorten, draftServer ? null : test, draftServer ? null : refine), draftBox, resultBox,
+    h("div", { class: "row" }, hint, generate, improve, shorten, draftServer ? null : test, draftServer ? null : refine), h("label", { class: "check", title: "Gives the model your profile and notes so a draft can use names and address ranges. That text goes to the provider of the assist route." }, memory, "Use my profile and notes for the draft"), draftBox, resultBox,
     standalone ? h("div", { class: "row" }, save, text ? remove : null) : null);
   node.read = () => ({ text: area.value, enabled: on.checked });
   return node;

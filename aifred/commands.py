@@ -94,7 +94,7 @@ class Commands:
         self._table: dict[str, Callable[[str, Context], Awaitable[str | Reply]]] = {
             "start": self._start, "help": self._help, "new": self._new, "sessions": self._sessions, "think": self._think,
             "model": self._model, "kb": self._kb, "pending": self._pending, "approve": self._approve, "reject": self._reject,
-            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "cron": self._cron, "agent": self._agent, "agents": self._agents, "quit": self._quit,
+            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "assist": self._assist, "cron": self._cron, "agent": self._agent, "agents": self._agents, "quit": self._quit,
         }
 
     @staticmethod
@@ -132,7 +132,7 @@ class Commands:
             "model": "[route|provider/model|auto] show or choose the model route", "kb": "[scan|search <query>] the knowledge base",
             "mcp": "[reload] MCP servers and their state", "refine": "review this conversation now and save what is worth keeping",
             "journey": "[delete <id>] what I learned; undo an entry",
-            "instructions": "[reload|<name>] what each tool group is for",
+            "instructions": "[reload|<name>] what each tool group is for", "assist": "<mcp:name|toolset:name> [hint] draft or improve its instruction and score it (saves nothing)",
             "agent": "<name> <task> hand a task to a sub-agent", "agents": "the sub-agents you can use",
             "cron": "[add <name> | <schedule> | <prompt>|pause|resume|run|remove <name>] scheduled tasks", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
             "quit": "leave the CLI",
@@ -287,6 +287,26 @@ class Commands:
         lines = [f"{g['kind']}:{g['name']}: " + (first_sentence(g["text"]) if g["text"] else "(undocumented)" if g["kind"] == "mcp" else "(none)") for g in groups if g["text"] or g["kind"] == "mcp"]
         lines.append(f"Capabilities section: {overview['used']:,} of {overview['budget']:,} characters.")
         return "\n".join(lines) if len(lines) > 1 else "No instructions written yet. " + lines[0]
+
+    async def _assist(self, args: str, ctx: Context) -> str:
+        """/assist <mcp:name|toolset:name|tool:name> [hint]: draft or improve its instruction and score it. Saves nothing."""
+        s = self._s
+        scope, _, hint = args.partition(" ")
+        if not scope:
+            return "Usage: /assist <mcp:name | toolset:name | tool:name> [hint]. It drafts or improves the instruction, tests it on a few requests and shows the score; nothing is saved (use the Tools page to accept it)."
+        try:
+            stored = s.instructions.get(scope)
+            mode = "improve" if stored and stored["text"].strip() else "generate"
+            drafted = await s.instructions.suggest(scope, hint.strip(), mode=mode, current=stored["text"] if stored else "")
+            result = await s.assist.evaluate(scope, drafted["draft"], hint=hint.strip())
+        except InstructionError as exc:
+            return f"Cannot do that: {exc}"
+        failed = [c for c in result["cases"] if not c["passed"]]
+        lines = [f"{'Improved' if mode == 'improve' else 'Draft'} for {scope} (written by {drafted['provider']} / {drafted['model']}):", result["text"], "",
+                 f"Score {result['score'][0]}/{result['score'][1]}" + (f"; the saved text scores {result['baseline'][0]}/{result['baseline'][1]}" if result["baseline"] else "")]
+        lines += [f"- failed: \"{c['request']}\" (expected {c['expect']}, got {', '.join(c['chosen']) or 'no tool'})" for c in failed[:5]]
+        lines.append("Nothing was saved. Accept it on the Tools page (Test and Refine are there too).")
+        return "\n".join(lines)
 
     async def _refine(self, args: str, ctx: Context) -> str:
         result = await self._s.review.run(ctx.session_id, force=True)

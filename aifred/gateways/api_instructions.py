@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
@@ -40,6 +44,7 @@ class SuggestIn(BaseModel):
     server: ServerDraft | None = None
     mode: str = "generate"
     current: str = Field(default="", max_length=4000)
+    use_memory: bool = False
 
 
 class CaseIn(BaseModel):
@@ -82,8 +87,6 @@ def overview(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
 @router.post("/api/instructions/suggest")
 async def suggest(body: SuggestIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Draft an instruction with the model; the draft is only returned, never saved."""
-    import asyncio
-
     tools = None
     try:
         if body.server is not None:
@@ -93,7 +96,7 @@ async def suggest(body: SuggestIn, _: AdminDep, services: ServicesDep) -> dict[s
             if not result["ok"]:
                 raise InstructionError(f"cannot reach the server to read its tools: {result['error']}")
             tools = result["tool_info"]
-        return await services.instructions.suggest(body.scope, body.hint, tools, mode=body.mode, current=body.current)
+        return await services.instructions.suggest(body.scope, body.hint, tools, mode=body.mode, current=body.current, use_memory=body.use_memory)
     except InstructionError as exc:
         raise _bad(exc) from None
     except VaultError as exc:
@@ -109,6 +112,33 @@ async def evaluate(body: EvaluateIn, _: AdminDep, services: ServicesDep) -> dict
         return await services.assist.evaluate(body.scope, body.text, [c.model_dump() for c in body.cases] if body.cases else None, body.rounds, body.hint)
     except InstructionError as exc:
         raise _bad(exc) from None
+
+
+@router.post("/api/assist/evaluate/stream")
+async def evaluate_stream(body: EvaluateIn, _: AdminDep, services: ServicesDep) -> StreamingResponse:
+    """Like ``/api/assist/evaluate`` but streams progress as server-sent events, ending with ``result`` or ``error``."""
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+    async def work() -> None:
+        try:
+            result = await services.assist.evaluate(
+                body.scope, body.text, [c.model_dump() for c in body.cases] if body.cases else None, body.rounds, body.hint, progress=queue.put_nowait,
+            )
+            queue.put_nowait({"step": "result", "result": result})
+        except InstructionError as exc:
+            queue.put_nowait({"step": "error", "message": str(exc)})
+        finally:
+            queue.put_nowait(None)
+
+    async def stream() -> AsyncIterator[bytes]:
+        task = asyncio.create_task(work())
+        try:
+            while (event := await queue.get()) is not None:
+                yield b"data: " + json.dumps(event, ensure_ascii=False).encode() + b"\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.post("/api/assist/improve")
