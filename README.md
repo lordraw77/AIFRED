@@ -17,11 +17,11 @@ AIFRED is a small, from-scratch personal agent. It keeps the parts that matter (
 
 It runs on your hardware, talks to the LLMs you choose (local or hosted), and is configured entirely from a web dashboard.
 
-**Status:** early release (v0.1.1). It is tested (850+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
+**Status:** early release (v0.2.0). It is tested (970+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
 
 ## Highlights
 
-- **One agent core, four gateways:** CLI, Telegram (with an optional allowlist; an open bot is restricted), an OpenAI-compatible API (`/v1/chat/completions`, stateful sessions, streaming) and a web dashboard. The same slash commands (`/new`, `/model`, `/think`, `/kb`, `/approve`, `/refine`, `/mcp`, …) work everywhere.
+- **One agent core, four gateways:** CLI, Telegram (with an optional allowlist; an open bot is restricted), an OpenAI-compatible API (`/v1/chat/completions`, stateful sessions, streaming) and a web dashboard. The same slash commands (`/new`, `/model`, `/think`, `/kb`, `/approve`, `/refine`, `/mcp`, `/cron`, `/agent`, …) work everywhere.
 - **A complete web dashboard:** chat with streaming and tool traces, sessions and search, memory, skills, knowledge base, tools, MCP servers, models and routes with health and usage, a journal with undo, live logs, configuration, API keys and account, in a dark and a light theme. Plain HTML, CSS and JS with no build step, behind a strict Content-Security-Policy.
 - **Bring any LLM, configure it from the web:** Ollama and local OpenAI-compatible servers (vLLM, llama.cpp, LM Studio), plus Groq, OpenRouter, Google Gemini, Cloudflare Workers AI, Cerebras, Mistral, NVIDIA and Hugging Face. Any other OpenAI-compatible endpoint works as a custom provider.
 - **Routes and automatic fallback:** ordered provider/model lists per gateway. When credit runs out, a provider is down or a request times out, AIFRED moves to the next entry, with cooldowns, health status and usage tracking.
@@ -29,6 +29,8 @@ It runs on your hardware, talks to the LLMs you choose (local or hosted), and is
 - **Local knowledge base (RAG):** your own documents, chunked and embedded into the same SQLite file, searched with hybrid (semantic + keyword) retrieval. Embeddings come from a model you choose, ideally a local one; only you can add documents, the agent can only search them. Reads text, PDF, Office and OpenDocument files, and images (JPG, PNG, WebP) and scanned pages through a vision model you choose, with metadata removed first and a daily limit; every file is parsed in a limited child process.
 - **Skills that learn:** file-based skills (`SKILL.md`) and a background review that proposes new memories, skills and better tool instructions, with optional approval before anything is saved and an undo for every change.
 - **Tools and MCP:** built-in toolsets (memory, search, skills, web, files, optional terminal) and a built-in MCP client (Streamable HTTP, current and earlier protocol revisions, HTTP and HTTPS, optional certificate skip).
+- **Scheduled tasks:** "every weekday at 8, summarise the news": recurring prompts the agent runs by itself and delivers on Telegram. The model can propose a task, but it only exists once you approve it.
+- **Sub-agents:** named specialists (a researcher, a sysadmin for your MCP servers) with their own role, model and limits that the main agent can hand tasks to; they never get more access than the chat that called them.
 - **Instructions for every tool:** tell the agent what each MCP server or toolset is *for* ("`linux-mcp` is my local Linux servers"), so it picks the right one on its own. A Suggest button drafts the text from the server's discovered tools.
 - **Safe by default:** single admin account, scrypt password hashing, session cookies with CSRF, hashed API keys, secrets encrypted at rest and never returned by the API, non-root read-only container. The master key for stored secrets lives in an OpenBao server next to the container, not on the data volume.
 
@@ -106,7 +108,7 @@ Bootstrap variables: `AIFRED_ADMIN_USER`, `AIFRED_ADMIN_PASSWORD` (see `.env.exa
 
 ## Roadmap
 
-v0.1 covers everything above. Later candidates: sub-agents, an LLM-assisted editor for instructions (generate, improve, shorten, evaluate), per-gateway access to knowledge-base collections, stdio MCP servers and OAuth, scheduled tasks, webhooks, multi-user accounts, more gateways, an arm64 image. See section 14 of the specification.
+v0.1 covers everything above. Later candidates: an LLM-assisted editor for instructions (generate, improve, shorten, evaluate), per-gateway access to knowledge-base collections, stdio MCP servers and OAuth, webhooks, multi-user accounts, more gateways, an arm64 image. See section 14 of the specification.
 
 ## Name and license
 

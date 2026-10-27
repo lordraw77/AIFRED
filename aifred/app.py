@@ -21,6 +21,8 @@ from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
 from aifred.review import ReviewService
+from aifred.agents import AgentService
+from aifred.scheduler import SchedulerService
 from aifred.skills import SkillStore
 from aifred.tools.registry import ToolRegistry
 from aifred.tools.web import WebTools
@@ -130,6 +132,8 @@ class Services:
         rag: The local knowledge base.
         rag_worker: Background indexer, created by the server process only.
         review: Background self-improvement review.
+        scheduler: Scheduled tasks and the clock that runs them (started by the server only).
+        agents: Sub-agent definitions and runs.
         instructions: What MCP servers, toolsets and tools are for.
         mcp: MCP server definitions.
         mcp_manager: Connections to MCP servers (started by the server and the CLI).
@@ -150,6 +154,8 @@ class Services:
     rag: RagService = field(init=False)
     rag_worker: RagWorker | None = field(init=False, default=None)
     review: ReviewService = field(init=False)
+    scheduler: SchedulerService = field(init=False)
+    agents: AgentService = field(init=False)
     instructions: InstructionService = field(init=False)
     mcp: McpService = field(init=False)
     mcp_manager: McpManager = field(init=False)
@@ -158,6 +164,8 @@ class Services:
         self.review = ReviewService(self)
         self.instructions = InstructionService(self)
         self.agent = Agent(self)
+        self.scheduler = SchedulerService(self)
+        self.agents = AgentService(self)
         self.mcp = McpService(self.store, self.vault, self.config)
         self.mcp_manager = McpManager(self.mcp, self.store)
         self.tools.add_source(self.mcp_manager.tools)
@@ -216,6 +224,7 @@ class Services:
 
     def close(self) -> None:
         """Release resources."""
+        self.scheduler.stop()
         self.review.shutdown()
         self.mcp_manager.stop()
         self.store.close()
@@ -227,7 +236,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_chat, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_system
+    from aifred.gateways import api, api_agents, api_chat, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -247,6 +256,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         elif services.rag_worker is not None:
             services.rag_worker.stop()
 
+    def sync_scheduler(changed: set[str] | None = None) -> None:
+        """Run the scheduler clock exactly while ``SCHEDULER_ENABLED`` is on."""
+        if changed is not None and "SCHEDULER_ENABLED" not in changed:
+            return
+        if services.config.get("SCHEDULER_ENABLED"):
+            services.scheduler.start()
+        else:
+            services.scheduler.stop()
+
     telegram = TelegramGateway(services)
     app_loop: list[asyncio.AbstractEventLoop] = []
 
@@ -263,7 +281,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app_loop.append(asyncio.get_running_loop())
         services.config.subscribe(sync_rag_worker)
         services.config.subscribe(sync_telegram)
+        services.config.subscribe(sync_scheduler)
+        services.agents.ensure_starters()
+        services.agents.interrupted()
         sync_rag_worker()
+        sync_scheduler()
         services.start_mcp()
         await telegram.start()
         try:
@@ -283,6 +305,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_llm.router)
     app.include_router(api_rag.router)
     app.include_router(api_mcp.router)
+    app.include_router(api_sched.router)
+    app.include_router(api_agents.router)
     app.include_router(api_system.router)
     app.include_router(api_data.router)
     app.include_router(api_instructions.router)

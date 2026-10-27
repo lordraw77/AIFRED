@@ -72,7 +72,7 @@ class Settings(BaseSettings):
 
 Kind = Literal["str", "int", "float", "bool", "enum", "json", "list", "int_list", "url", "secret"]
 
-_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|terminal|mcp|mcp:[a-z0-9_]{1,24})$")
+_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|terminal|cron|agents|mcp|mcp:[a-z0-9_]{1,24})$")
 _URL_RE = re.compile(r"^https?://[^\s/]+(/\S*)?$")
 
 
@@ -126,6 +126,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("ROUTE_TELEGRAM", "str", "default", "routing", "Model route used by Telegram"),
         SettingSpec("ROUTE_API", "str", "default", "routing", "Model route used by the API"),
         SettingSpec("ROUTE_WEB", "str", "default", "routing", "Model route used by the web chat"),
+        SettingSpec("ROUTE_CRON", "str", "default", "routing", "Model route used by scheduled tasks"),
         SettingSpec("ROUTE_DEADLINE", "int", 120, "routing", "Time budget (s) for walking a route", minimum=5, maximum=3600),
         SettingSpec("COOLDOWN_QUOTA", "int", 3600, "routing", "Default cooldown (s) after quota exhaustion", minimum=0, maximum=86400 * 31),
         SettingSpec("MAX_ITERATIONS", "int", 12, "agent", "Maximum tool rounds per request", minimum=1, maximum=100),
@@ -141,6 +142,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         _toolsets("TOOLSETS_TELEGRAM", None, "Toolsets for Telegram (empty: inherit)"),
         _toolsets("TOOLSETS_API", None, "Toolsets for the API (empty: inherit)"),
         _toolsets("TOOLSETS_WEB", None, "Toolsets for the web chat (empty: inherit)"),
+        _toolsets("TOOLSETS_CRON", ["search", "web", "skills"], "Toolsets for scheduled tasks, which run unattended (add more only for tasks you trust)"),
         SettingSpec("ENABLE_TERMINAL", "bool", False, "tools", "Shortcut that adds terminal to TOOLSETS"),
         SettingSpec("TERMINAL_TIMEOUT", "int", 60, "tools", "Terminal command timeout (s)", minimum=1, maximum=3600),
         SettingSpec("WEB_ALLOW_PRIVATE", "bool", False, "tools", "Let web_fetch reach private addresses"),
@@ -150,6 +152,16 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("REVIEW_MAX_INPUT_TOKENS", "int", 6000, "review", "Cost cap for one review", minimum=500, maximum=1000000),
         SettingSpec("WRITE_APPROVAL", "enum", "off", "review", "Queue saves for approval", ("off", "memory", "skills", "all")),
         SettingSpec("NOTIFICATIONS", "enum", "on", "review", "Show saves and fallbacks in chat", ("off", "on", "verbose")),
+        SettingSpec("SCHEDULER_ENABLED", "bool", True, "scheduler", "Run scheduled tasks"),
+        SettingSpec("SCHEDULER_TIMEZONE", "str", "", "scheduler", "Time zone of cron expressions, for example Europe/Rome (empty: the server's)"),
+        SettingSpec("SCHEDULER_MIN_INTERVAL", "int", 5, "scheduler", "Shortest gap (minutes) between runs of one task", minimum=1, maximum=1440),
+        SettingSpec("SCHEDULER_MAX_TASKS", "int", 20, "scheduler", "Most scheduled tasks that can exist", minimum=1, maximum=500),
+        SettingSpec("SCHEDULER_RUN_TIMEOUT", "int", 600, "scheduler", "Seconds one scheduled run may take", minimum=10, maximum=7200),
+        SettingSpec("SCHEDULER_MAX_PARALLEL", "int", 2, "scheduler", "Scheduled runs that can go at the same time", minimum=1, maximum=8),
+        SettingSpec("AGENT_MAX_ITERATIONS", "int", 8, "agents", "Tool rounds a sub-agent may take (unless its own limit is set)", minimum=1, maximum=100),
+        SettingSpec("AGENT_TIMEOUT", "int", 300, "agents", "Seconds a sub-agent run may take (unless its own limit is set)", minimum=10, maximum=7200),
+        SettingSpec("AGENT_MAX_PARALLEL", "int", 3, "agents", "Sub-agents that delegate_many runs at the same time", minimum=1, maximum=10),
+        SettingSpec("AGENT_MAX_AGENTS", "int", 20, "agents", "Most sub-agents that can be defined", minimum=1, maximum=200),
         SettingSpec("MCP_CONNECT_TIMEOUT", "int", 15, "mcp", "Default MCP connect timeout (s)", minimum=1, maximum=600),
         SettingSpec("MCP_CALL_TIMEOUT", "int", 120, "mcp", "Default MCP call timeout (s)", minimum=1, maximum=3600),
         SettingSpec("MCP_MAX_TOOLS_PER_SERVER", "int", 40, "mcp", "Cap on tools exposed per MCP server", minimum=1, maximum=500),

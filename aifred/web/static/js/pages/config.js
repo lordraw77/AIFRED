@@ -1,7 +1,7 @@
 // Config: every setting grouped by section, with a filter. Changes apply live; secrets are write-only (spec 4.3).
 import { attempt, button, clear, empty, get, h, put, skeleton, toast } from "../core.js";
 
-const GROUP_ORDER = ["llm", "routing", "agent", "tools", "telegram", "mcp", "rag", "review", "system"];
+const GROUP_ORDER = ["llm", "routing", "agent", "tools", "telegram", "scheduler", "agents", "mcp", "rag", "review", "system"];
 
 function asText(item, value) {
   if (value === null || value === undefined) return "";

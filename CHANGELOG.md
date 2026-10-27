@@ -2,6 +2,13 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.2.0] - 2026-10-27
+
+### Added
+- **Scheduled tasks.** A prompt the agent runs on its own on a schedule (cron fields, `@daily`-style aliases or `every 30m`, in `SCHEDULER_TIMEZONE`) and delivers on Telegram. Runs are unattended: route `ROUTE_CRON`, narrow `TOOLSETS_CRON` (default search, web, skills), a time limit, no review, and they cannot create tasks. Slots are claimed in the database so they run once, overlapping and long-overdue slots are skipped and recorded. The `cronjob` tool (toolset `cron`, off by default) lets the model list, run, pause and resume tasks; creating, changing and removing wait for your approval with a preview of the next runs. Delivery only to chats on `TELEGRAM_ALLOWED_IDS`. Schedules page with a live preview, `/cron` command, `/api/schedules`.
+- **Sub-agents.** Named agents with their own role, model route, skills, toolsets, memory mode and limits that the main agent hands tasks to with `delegate` and `delegate_many` (toolset `agents`, off by default) or you call with `/agent <name> <task>`. A run gets the intersection of the agent's toolsets and the caller's, never delegates further, is refused for open Telegram chats, runs in a child session and is recorded with tokens and output. Starter agents `researcher`, `sysadmin` and `writer` (off until you turn them on). Agents page with a test box and history, `/agents`, `/api/agents`.
+- Settings `SCHEDULER_*` and `AGENT_*`, `ROUTE_CRON`, `TOOLSETS_CRON`; database migrations 7 and 8.
+
 ## [0.1.1] - 2026-10-27
 
 ### Fixed

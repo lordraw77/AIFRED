@@ -4,11 +4,11 @@ name: aifred
 
 services:
   aifred:
-    image: ${AIFRED_IMAGE:-aifred}:${AIFRED_VERSION:-0.1.1}   # AIFRED_IMAGE=lordraw/aifred uses the published image (see docs/deploy.md)
+    image: ${AIFRED_IMAGE:-aifred}:${AIFRED_VERSION:-0.2.0}   # AIFRED_IMAGE=lordraw/aifred uses the published image (see docs/deploy.md)
     build:
       context: .
       args:
-        VERSION: ${AIFRED_VERSION:-0.1.1}
+        VERSION: ${AIFRED_VERSION:-0.2.0}
     # no `init: true`: AIFRED itself is PID 1 so that /proc/1/environ (which holds the OpenBao
     # credentials) is protected by its hardening, and it reaps the orphans of terminal commands.
     restart: unless-stopped

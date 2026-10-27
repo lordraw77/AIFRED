@@ -20,7 +20,7 @@ A lean, self-hosted personal agent written from scratch in Python. Version 0.1 �
 
 **Out of scope (v0.1)**
 
-- Sub-agents and the LLM-assisted description editor (roadmap, designs in 14.1 and 14.2), cron/scheduler, voice, browser automation
+- The LLM-assisted description editor (roadmap, design in 14.1), voice, browser automation
 - Other gateways (Discord, Slack, …), multi-user, interactive approval of terminal commands
 - Remote terminal backends (SSH, Docker-in-Docker)
 - Reranking, approximate vector indexes, legacy Office formats and image embeddings for the knowledge base (roadmap, section 14)
@@ -194,6 +194,9 @@ Provider API keys, the Telegram token and MCP header values are never stored in 
 - **`settings`**, **`admin`**, **`auth_sessions`**, **`api_keys`** (hashed), **`secrets`** (encrypted values): configuration and credentials (4, 4.1, 4.2).
 - **`providers`**, **`provider_keys`**, **`models`**, **`routes`**, **`route_entries`**, **`provider_health`**, **`llm_usage`**: LLM configuration, health and usage (6.1).
 - **`mcp_servers`**: MCP server definitions (9.2).
+
+- **`schedules`**, **`schedule_runs`**: scheduled tasks and their run history (9.5).
+- **`agents`**, **`agent_runs`** and `sessions.parent_id`: sub-agents, their runs and the link from a sub-agent's session to the conversation that delegated (9.6).
 
 - **`instructions`**: usage notes for MCP servers, toolsets and tools (9.3).
 
@@ -402,7 +405,7 @@ Every tool is defined by a Pydantic model: the JSON schema sent to the model and
 
 ### 9.1 Toolsets
 
-Tools are grouped into toolsets enabled with `TOOLSETS` (comma-separated, default `memory,search,skills,web,file`). Each gateway can override it with `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB`; for example the terminal only from the CLI. `TOOLSETS` supersedes `ENABLE_TERMINAL`, which remains as a shortcut that appends `terminal`. A disabled toolset is never exposed to the model. In the dashboard an empty text means *inherit*; an explicit empty list (`[]` through the API) means *no tools* for that gateway.
+Tools are grouped into toolsets enabled with `TOOLSETS` (comma-separated, default `memory,search,skills,web,file`). Each gateway can override it with `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB`, `TOOLSETS_CRON`; for example the terminal only from the CLI. `TOOLSETS` supersedes `ENABLE_TERMINAL`, which remains as a shortcut that appends `terminal`. A disabled toolset is never exposed to the model. In the dashboard an empty text means *inherit*; an explicit empty list (`[]` through the API) means *no tools* for that gateway.
 
 | Toolset | Tools | Status |
 | --- | --- | --- |
@@ -416,8 +419,8 @@ Tools are grouped into toolsets enabled with `TOOLSETS` (comma-separated, defaul
 | `help` | `tool_help`; enabled automatically, not configurable | v0.1 |
 | `knowledge` | `knowledge_search`, `knowledge_sources` (9.4) | v0.1, off by default: add it to `TOOLSETS` or to a gateway's list, and set `RAG_ENABLED` |
 | `todo`, `clarify` | agent work list, multiple-choice questions | roadmap |
-| `cronjob` | create, list, update, pause, resume, run, remove | roadmap |
-| `agents` | `delegate`, `delegate_many` (sub-agents, 14.1) | roadmap |
+| `cron` | `cronjob`: create, list, update, pause, resume, run, remove (9.5) | v0.2, off by default |
+| `agents` | `delegate`, `delegate_many` (sub-agents, 9.6) | v0.2, off by default |
 | `code_execution` | scripts that call tools in one turn | roadmap |
 | `process`, `patch` | background processes, targeted file edits | roadmap |
 | `browser`, `vision`, `image_gen`, `tts` | browser automation, images, voice | out of scope |
@@ -642,6 +645,38 @@ Built on the same pipeline: a parser turns a file into text blocks (with page or
 - **Commands** on the CLI and the web chat (admin gateways only): `/kb` lists collections, `/kb scan` rescans the folder, `/kb search <query>` runs a search and prints the hits.
 - **API** (admin only): `GET/POST /api/rag/collections`, `PUT/DELETE /api/rag/collections/{name}`, `GET /api/rag/documents?collection=`, `GET /api/rag/documents/{id}/file`, `POST /api/rag/documents?collection=&name=` (the file is the raw request body), `POST /api/rag/documents/url`, `DELETE /api/rag/documents/{id}`, `POST /api/rag/scan`, `POST /api/rag/reindex`, `POST /api/rag/search` (`query`, `collection`, `limit`, `mode`: `hybrid`, `dense` or `keyword`) and `GET /api/rag/status`.
 
+### 9.5 Scheduled tasks
+
+A **task** is a name, a schedule, a prompt and optionally a Telegram chat. The scheduler (a clock thread in the server process, `SCHEDULER_ENABLED`) looks every 15 s for tasks whose next run has come, runs the prompt through the agent with source `cron` and sends the answer to the chat. Results are also kept (last 50 runs, with output and error) on the Schedules page.
+
+- **Schedules.** Five cron fields (`*`, lists, ranges, steps, month and day names; when both day fields are restricted either may match, as in classic cron), the aliases `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`, or `every 30m` / `every 2h` / `every 1d` counted from the previous slot. Times are in `SCHEDULER_TIMEZONE` (default: the server's); changing it recomputes every next run. No task may run more often than `SCHEDULER_MIN_INTERVAL` minutes (5) and at most `SCHEDULER_MAX_TASKS` (20) exist.
+- **Unattended runs are narrower than chats.** They use the `cron` gateway: route `ROUTE_CRON`, toolsets `TOOLSETS_CRON` (default `search`, `web`, `skills`; nothing that writes memory, files or runs commands unless the admin adds it), no review afterwards, a time limit `SCHEDULER_RUN_TIMEOUT` (600 s), at most `SCHEDULER_MAX_PARALLEL` (2) at once, and the `cronjob` tool is never offered, so a run cannot create more runs. The prompt is framed as an unattended task with nobody to ask.
+- **Slots run once.** A slot is claimed in the database before it runs, so two workers never run it twice. A task still running when its next slot arrives skips that slot. A slot found overdue by more than 15 minutes (the server was down) is recorded as `missed` and not run late. Runs a restart interrupted are marked failed.
+- **The model can propose, only the admin creates.** With the `cron` toolset on, the `cronjob` tool lets the model list and run tasks and pause or resume them, but `create`, `update` and `remove` go to the approval queue (`/pending`, Journey page) with a preview of the next runs; nothing exists or changes until approved. The prompt is screened by the safety filter when proposed and again when approved. A model-created task delivers only to the chat that asked (a Telegram chat on the allowlist) or the first allowed id, never to a chat the model names.
+- **Delivery.** Only chats on `TELEGRAM_ALLOWED_IDS` can receive scheduled messages (checked when a task is saved and on every send), so an open bot can never be used to message strangers. A failed run is delivered as a short warning; a failed delivery is shown on the run, not retried.
+- **Where.** The Schedules page (list, editor with live preview of the next runs, run now, pause, history); `/cron` on every gateway except the open bot; `GET /api/schedules`, `PUT/DELETE /api/schedules/{name}`, `POST /api/schedules/{name}/run`, `GET /api/schedules/{name}/runs`, `POST /api/schedules/preview`.
+
+### 9.6 Sub-agents
+
+A **sub-agent** is a named, preconfigured agent the main agent (or the user, with `/agent <name> <task>`) hands a self-contained task to. It starts with only its role and the task brief, runs the normal agent loop in a child session (`sessions.parent_id`, source `sub:<name>`, visible on the Sessions page with its tool calls) and returns its final answer, which the main agent then uses.
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `description` | Slug and a one-line statement of when to delegate to it; enabled agents are listed in the main agent's prompt |
+| `role` | Its system prompt, replacing the main persona |
+| `route` | Model route; a cheaper or stronger model than the main agent's |
+| `skills` | Skills preloaded into its prompt |
+| `toolsets` | Toolsets and MCP servers it may use |
+| `memory` | `none` (default), `read` (sees memory and profile) or `write` (may save; `WRITE_APPROVAL` applies) |
+| `max_iterations`, `timeout`, `token_budget` | Per-run limits; defaults `AGENT_MAX_ITERATIONS` (8) and `AGENT_TIMEOUT` (300 s); the budget is unlimited unless set |
+| `enabled` | Off until turned on; turning on requires a route that resolves |
+
+- **Never more than the caller.** A run's toolsets are the intersection of the agent's and those of the gateway that delegated, and an agent never gets `agents`, `cron` or `review`; `memory` only in mode `write` and only if the caller has it. Delegation is refused for an open Telegram chat and for a sub-agent (depth is fixed at 1, and `delegate` is not offered inside a run). Approval and `WRITE_APPROVAL` rules apply unchanged.
+- **`delegate(agent, task, context)`** runs one; **`delegate_many(jobs)`** runs up to `AGENT_MAX_PARALLEL` (3) at once and returns the answers in order, one failure not affecting the others. Both are in the `agents` toolset, off by default.
+- **Starter agents** `researcher` (web), `sysadmin` (MCP) and `writer` (skills) are created once, switched off; deleting them keeps them deleted.
+- **Observability.** Every run is recorded (`agent_runs`: task, output, error, tokens, model, child session; last 100 per agent) and its model calls are tagged `sub:<name>` in the usage table. A sub-agent is not reviewed for self-improvement.
+- **Where.** The Agents page (list, editor, *Test* with a task, history), `/agents` and `/agent`, `GET/POST /api/agents`, `PUT/DELETE /api/agents/{name}`, `POST /api/agents/{name}/run`, `GET /api/agents/{name}/runs`.
+
 ## 10. Gateways
 
 ### 10.1 CLI
@@ -649,7 +684,7 @@ Built on the same pipeline: a parser turns a file into text blocks (with page or
 - Command: `python -m aifred cli [--session ID]`.
 - Synchronous REPL on `input()` (no concurrent work, no threads stuck on Ctrl-C).
 - Streaming tokens; tools shown as a dim line `· name(arguments)`.
-- Every gateway goes through one command layer (`commands.py`); `/quit` exists only in the CLI. Commands: `/new`, `/sessions`, `/think on|off`, `/model [route|provider/model|auto]`, `/refine`, `/pending`, `/approve <id>`, `/reject <id>`, `/journey [delete <id>]`, `/instructions [reload|<scope>]`, `/mcp [add|reload]`, `/kb [scan|search <query>]`, `/help`, `/quit`. Settings are re-read from the database at the start of every turn, so dashboard changes apply to a running CLI.
+- Every gateway goes through one command layer (`commands.py`); `/quit` exists only in the CLI. Commands: `/new`, `/sessions`, `/think on|off`, `/model [route|provider/model|auto]`, `/refine`, `/pending`, `/approve <id>`, `/reject <id>`, `/journey [delete <id>]`, `/instructions [reload|<scope>]`, `/mcp [add|reload]`, `/kb [scan|search <query>]`, `/cron [list|add <name> | <schedule> | <prompt>|pause|resume|run|remove <name>]`, `/agents`, `/agent <name> <task>`, `/help`, `/quit`. Settings are re-read from the database at the start of every turn, so dashboard changes apply to a running CLI.
 
 ### 10.2 Telegram
 
@@ -821,6 +856,7 @@ The brand lives in `brand/` and is generated by `brand/build.py`; the assets the
 | Hostile PDF, Office or image files | Parsed in a child process with no credentials, wall-clock, CPU and memory limits; archive entry, size and ratio caps; DOCTYPE and entity declarations rejected; magic-byte type check; a failure marks one document `error` (9.4, second step) |
 | Images sent to a vision provider | No default provider; EXIF and GPS stripped first; daily limit; the Config page names the receiver; local vision models keep the images on the machine; machine-read text is labelled approximate (9.4) |
 | Document text sent to an embedding provider | No default provider; the Config page names the provider that receives the text; a local endpoint keeps everything on the machine; embedding calls count against provider budgets (9.4) |
+| Unattended runs and delegation | Scheduled tasks use a narrow toolset and cannot create tasks; model-proposed tasks, changes and removals wait for approval and are screened twice; delivery only to allowlisted Telegram ids; a sub-agent gets the intersection of its toolsets and the caller's, never `agents`, `cron` or write access to memory unless set, and is refused for open chats and for other sub-agents (9.5, 9.6) |
 | Untrusted MCP servers | Per-server toolsets, tool caps and filters, journaled definition changes, `verify_tls` per server with a visible warning |
 | Secrets | Encrypted before they reach the database; the master key is a Transit key in OpenBao, not a file on the volume (4.2); never in logs, journal or API responses; the bootstrap password is hashed and should be removed from `.env` |
 | Container | Non-root user, `cap_drop: ALL`, `no-new-privileges`, read-only filesystem with a `/data` volume, memory limit |
@@ -904,15 +940,15 @@ Knowledge base, second step:
 24. A scanned PDF page without a text layer is read through the vision route; once `RAG_VISION_DAILY_LIMIT` is reached the document is `partial` and says which pages were skipped.
 25. A zip bomb, a PDF that makes the parser spin and an XML with entity expansion each end as `error` within the configured limits, and the service keeps answering.
 26. Changing the memory settings (`RAG_CACHE_MB`, `RAG_MAX_CHUNKS`, `AIFRED_MEM_LIMIT`) takes effect without code changes, and a collection larger than the cache is still searched correctly.
+27. A task created from a chat does not exist until approved; an approved task runs on schedule once per slot, is delivered only to an allowlisted chat, and a run cannot create tasks.
+28. A sub-agent never uses a toolset its caller lacks, cannot delegate, and is refused for an open Telegram chat.
 
 ## 14. Roadmap beyond v0.1
 
 | Priority | Feature | Note |
 | --- | --- | --- |
-| High | Scheduler/cron with delivery on Telegram | Recurring tasks in natural language |
 | High | Advanced MCP | OAuth with Client ID Metadata Documents, stdio transport, `subscriptions/listen`, `input_required` (elicitation) |
-| High | Sub-agents | Named agents delegated to by the main agent; design in 14.1 |
-| Medium | Description assistant | LLM-assisted, measured instruction editor; design in 14.2 |
+| Medium | Description assistant | LLM-assisted, measured instruction editor; design in 14.1 |
 | Medium | Interactive approval for the terminal | Inline buttons on Telegram |
 | Medium | Context compression | Summarise history beyond a threshold, trimming by tokens rather than by message count |
 | Low | Knowledge base: more formats | Legacy `.doc`, `.xls`, `.ppt`, e-mail and EPUB; until then convert to a supported format |
@@ -925,39 +961,11 @@ Knowledge base, second step:
 | Low | More gateways | Discord, Slack, Matrix |
 | Low | Remote terminal backend | SSH to homelab hosts |
 
-The designs below are kept for when the features are scheduled; nothing in them is part of v0.1. Their tables (`agents`, `agent_runs`, and `parent_id` on `sessions`), settings (`AGENT_MAX_ITERATIONS`, `AGENT_TIMEOUT`, `AGENT_MAX_PARALLEL`, `AGENT_MAX_DEPTH`), route (`assist`) and acceptance criteria are added with them.
+The design below is kept for when the feature is scheduled; its route (`assist`), settings and acceptance criteria are added with it. Scheduled tasks (9.5) and sub-agents (9.6) are built.
 
-### 14.1 Sub-agents (roadmap)
+### 14.1 Description assistant (roadmap)
 
-The main agent can delegate to **sub-agents**: named, preconfigured agents with their own role, model route, skills, toolsets and limits, each aimed at a specific kind of task (for example `sysadmin` for `linux-mcp`, `researcher` for web research).
-
-**Definition** (table `agents`, edited on the Agents page):
-
-| Field | Meaning |
-| --- | --- |
-| `name`, `description` | Slug and a one-line statement of what it is for and when to delegate to it; shown to the main agent in the Capabilities section |
-| `role` | System prompt of the sub-agent (task-focused, replaces the main persona) |
-| `route` | Model route (6.1); can be a cheaper or more capable one than the main agent |
-| `skills` | Skills preloaded into its prompt, or an allowlist it may load |
-| `toolsets` | Toolsets and MCP servers it may use, with their instructions (9.3) |
-| `memory` | `none` (default), `read` (curated memory visible) or `write` (writes go through `WRITE_APPROVAL`) |
-| `max_iterations`, `timeout`, `token_budget` | Per-run limits; defaults from `AGENT_MAX_ITERATIONS` (8) and `AGENT_TIMEOUT` (300 s) |
-| `enabled` | Only enabled agents are offered |
-
-**Delegation**
-
-- The `agents` toolset provides `delegate(agent, task, context)` and `delegate_many([...])`. The sub-agent starts with a fresh context containing only its role, the task brief and the optional context, runs the normal agent loop (6) and returns its final answer, truncated to `TOOL_OUTPUT_LIMIT`. The main agent then continues with that result.
-- `delegate_many` runs up to `AGENT_MAX_PARALLEL` (3) sub-agents concurrently; results come back in order.
-- **No recursion by default:** `AGENT_MAX_DEPTH` is 1, so sub-agents cannot delegate further.
-- **Users can call one directly:** `/agent <name> <task>` on every gateway; `/agents` lists them.
-- **Safety:** a sub-agent's effective toolsets are the intersection of its definition and the toolsets enabled for the calling gateway, so delegation cannot escalate privileges (an open Telegram bot cannot reach `terminal` or `linux-mcp` through an agent). Approval and `WRITE_APPROVAL` rules apply unchanged.
-- **Observability:** each run is stored as a child session (`parent_id`, source `sub:<name>`) visible in Sessions with its tool calls; `llm_usage` records the agent name; failover works per its own route; progress appears as a single collapsed line in chat ("sysadmin: working…").
-- **Starter agents** (editable, disabled until a route exists): `researcher` (web toolset), `sysadmin` (MCP servers marked as infrastructure), `writer` (skills only).
-- **Dashboard:** Agents page with list, editor, a *Run test task* button and run history. Endpoints: `GET/POST /api/agents`, `PUT/DELETE /api/agents/{name}`, `POST /api/agents/{name}/run`, `GET /api/agents/{name}/runs`.
-
-### 14.2 Description assistant (roadmap)
-
-A good instruction decides whether the agent picks the right tool, so writing it is helped by the LLM and then **measured**. When implemented, the assistant replaces the simple Suggest button of 9.3 and serves every text that steers the agent: instructions for MCP servers, toolsets and tools; sub-agent `description` and `role` (14.1); skill descriptions (8).
+A good instruction decides whether the agent picks the right tool, so writing it is helped by the LLM and then **measured**. When implemented, the assistant replaces the simple Suggest button of 9.3 and serves every text that steers the agent: instructions for MCP servers, toolsets and tools; sub-agent `description` and `role` (9.6); skill descriptions (8).
 
 **Where.** A *Generate* / *Improve* button next to each of those fields, in the dashboard and as `/assist <scope>` in chat (admin only).
 
@@ -1009,7 +1017,7 @@ Acceptance criteria when implemented:
 8. **One provider adapter, many presets.** Every provider is reached through an OpenAI-compatible chat endpoint; presets and a custom type avoid per-provider code, with small adapters only for quirks (6.1).
 9. **Failover is per request and not sticky.** Routes are ordered lists, cooldowns are tracked per entry and key, and the primary is retried once its cooldown ends (6.1).
 10. **Instructions are admin-authored, agent-suggested.** The agent may propose better instructions but never changes them itself (9.3).
-11. **Sub-agents and the description assistant are roadmap, not v0.1** (decision of 25 October 2026). Their designs are kept in 14.1 and 14.2; when built, sub-agents stay one level deep and never widen privileges.
+11. **Sub-agents and the description assistant were roadmap for v0.1** (decision of 25 October 2026); sub-agents were built on 27 October 2026 (9.6), one level deep and never widening privileges; the description assistant remains a design (14.1).
 12. **The open Telegram bot is kept, restricted** (decision of 25 October 2026): no memory or profile, own-chat search, read-only skills, web only (10.2).
 13. **A local knowledge base is part of v0.1** (request of 26 October 2026): SQLite-only storage, hybrid retrieval, text formats, admin-only ingestion (9.4).
 14. **The agent reads the knowledge base and never writes it.** Poisoning its own future answers would otherwise be one tool call away (9.4).

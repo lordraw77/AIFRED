@@ -121,6 +121,25 @@ def save_notice(name: str, raw_arguments: str, output: str, verbose: bool) -> st
     return text
 
 
+@dataclass(frozen=True)
+class Profile:
+    """How a sub-agent's turn differs from a normal one (docs/specs.md 14.1).
+
+    Attributes:
+        name: The agent's name (recorded with every model call).
+        system: Its whole system prompt, built by the agent service.
+        toolsets: The toolsets it may use, already intersected with the caller's.
+        max_iterations: Tool rounds before it must stop.
+        token_budget: Total tokens it may spend (0: unlimited).
+    """
+
+    name: str
+    system: str
+    toolsets: frozenset[str]
+    max_iterations: int
+    token_budget: int = 0
+
+
 @dataclass
 class _Prompt:
     text: str
@@ -220,6 +239,11 @@ class Agent:
         capabilities = s.instructions.capabilities(ctx)
         if capabilities:
             lines += ["", capabilities]
+        if "delegate" in names:
+            offered = s.agents.offered(ctx)
+            if offered:
+                lines += ["", "## Sub-agents (hand a self-contained task to one with delegate; it sees only the task and the context you give it)"]
+                lines += [f"- {a['name']}: {a['description']}" for a in offered]
         lines += [
             "", "## Guidelines",
             "- Be concise. Never invent results: if you did not run or read something, say so.",
@@ -244,7 +268,8 @@ class Agent:
     # Turns
 
     async def run(
-        self, session_id: str, text: str, source: str, *, restricted: bool = False, route: str | None = None
+        self, session_id: str, text: str, source: str, *, restricted: bool = False, route: str | None = None,
+        profile: Profile | None = None,
     ) -> AsyncIterator[Event]:
         """Run one turn.
 
@@ -255,6 +280,7 @@ class Agent:
             restricted: Whether the caller is an open-gateway user with reduced capabilities.
             route: Route name or ``provider/model`` for this turn only (the API's ``model`` field);
                 by default the session's choice, else the gateway's route.
+            profile: Run as a sub-agent: its prompt, toolsets and limits replace the normal ones.
 
         Yields:
             Events ending with :class:`DoneEvent` or :class:`ErrorEvent`.
@@ -266,7 +292,7 @@ class Agent:
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
         async with lock:
-            async for event in self._turn(session_id, text, source, restricted, route):
+            async for event in self._turn(session_id, text, source, restricted, route, profile):
                 yield event
 
     async def reply(self, session_id: str, text: str, source: str, *, restricted: bool = False, route: str | None = None) -> str:
@@ -279,14 +305,16 @@ class Agent:
                 final = event.message
         return final
 
-    async def _turn(self, session_id: str, text: str, source: str, restricted: bool, route: str | None = None) -> AsyncIterator[Event]:
+    async def _turn(
+        self, session_id: str, text: str, source: str, restricted: bool, route: str | None = None, profile: Profile | None = None,
+    ) -> AsyncIterator[Event]:
         s = self._s
         cfg = s.config
-        ctx = ToolContext(s, session_id, source, restricted)
+        ctx = ToolContext(s, session_id, source, restricted, profile.toolsets if profile else None)
         for note in s.review.take_notices(session_id):
             yield NoticeEvent(note)
         await asyncio.to_thread(s.store.ensure_session, session_id, source, text.strip()[:TITLE_LENGTH])
-        prompt = self._prompt(session_id, ctx)
+        prompt = _Prompt(profile.system, self._clock()) if profile else self._prompt(session_id, ctx)
         history = await asyncio.to_thread(s.store.history, session_id, int(cfg.get("HISTORY_LIMIT")))
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": prompt.text}, *history, {"role": "user", "content": text},
@@ -304,15 +332,20 @@ class Agent:
             return
 
         tools = s.tools.schemas(ctx)
-        limit = int(cfg.get("MAX_ITERATIONS"))
+        limit = profile.max_iterations if profile else int(cfg.get("MAX_ITERATIONS"))
         prompt_tokens = completion_tokens = 0
         served_by = ""
         for _ in range(limit):
+            if profile and profile.token_budget and prompt_tokens + completion_tokens >= profile.token_budget:
+                final = f"I stopped because the token budget of {profile.token_budget:,} was used up before I reached a final answer."
+                await asyncio.to_thread(s.store.add_message, session_id, "assistant", final)
+                yield DoneEvent(final, {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}, served_by)
+                return
             completed: Completed | None = None
             try:
                 async for ev in s.llm.chat(
                     entries, messages, tools or None, route=route_name, session_key=session_id, source=source,
-                    thinking=self.thinking(session_id),
+                    thinking=self.thinking(session_id), agent=f"sub:{profile.name}" if profile else None,
                     allow_midstream_retry=source != "api",
                 ):
                     if isinstance(ev, Token):
@@ -341,7 +374,8 @@ class Agent:
                 s.store.add_message, session_id, "assistant", result.content or None, result.tool_calls or None
             )
             if not result.tool_calls:
-                s.review.after_turn(session_id, restricted)  # counts the turn; a review runs on its own thread when one is due
+                if source != "cron" and profile is None:  # scheduled runs and sub-agents are not conversations to learn from
+                    s.review.after_turn(session_id, restricted)  # counts the turn; a review runs on its own thread when one is due
                 yield DoneEvent(result.content, usage, served_by)
                 return
             for call in result.tool_calls:
@@ -357,6 +391,6 @@ class Agent:
         final = (
             f"I stopped after {limit} tool rounds without reaching a final answer. "
             "Tell me to continue if you want me to go on."
-        )
+        ) if profile is None else f"The sub-agent stopped after {limit} tool rounds without reaching a final answer."
         await asyncio.to_thread(s.store.add_message, session_id, "assistant", final)
         yield DoneEvent(final, usage, served_by)

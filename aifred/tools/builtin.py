@@ -475,3 +475,163 @@ def instruction_suggest(ctx: ToolContext, args: SuggestArgs) -> str:
     wid = queue_write(services, "instruction", {"scope": args.scope, "text": args.text, "reason": args.reason[:300]}, ctx.session_id, "propose", f"{args.scope}: {args.text}")
     return f"Queued for the user's approval as #{wid}; it is not applied."
 
+
+
+# cronjob
+
+
+class CronArgs(BaseModel):
+    """Arguments of the cronjob tool."""
+
+    action: Literal["create", "list", "update", "pause", "resume", "run", "remove"] = Field(description="What to do")
+    name: str | None = Field(default=None, description="Task name: lowercase letters, digits, '-' and '_' (all actions but list)")
+    schedule: str | None = Field(
+        default=None,
+        description="When to run: five cron fields ('0 8 * * 1-5'), an alias (@daily, @hourly, @weekly) or 'every 30m' / 'every 2h' (create, update)",
+    )
+    prompt: str | None = Field(default=None, description="What to do each time, written as a complete instruction (create, update)")
+    deliver: bool = Field(default=True, description="Send each result to the user on Telegram (create)")
+
+
+def _cron_chat(ctx: ToolContext, deliver: bool) -> int | None:
+    """The chat results go to: the Telegram chat that asked, else the first allowed one."""
+    if not deliver:
+        return None
+    from aifred.scheduler import chat_of_session
+
+    allowed = ctx.services.config.get("TELEGRAM_ALLOWED_IDS")
+    chat = chat_of_session(ctx.session_id) if ctx.source == "telegram" else None
+    if chat is not None and chat in allowed:
+        return chat
+    return allowed[0] if allowed else None
+
+
+@registry.tool(
+    "cronjob", "cron",
+    "Schedule recurring tasks that run on their own and send the result on Telegram. Creating, changing or removing a task waits "
+    "for the user's approval; tell them it is queued. Use 'list' first to see what exists.",
+    CronArgs, available=lambda ctx: ctx.source != "cron",  # an unattended run must never schedule more runs
+)
+def cronjob(ctx: ToolContext, args: CronArgs) -> str:
+    """Manage scheduled tasks; changes that could cost money or message the user go through the approval queue."""
+    from aifred.scheduler import SchedulerError
+
+    services, sched = ctx.services, ctx.services.scheduler
+    try:
+        if args.action == "list":
+            rows = services.store.schedule_list()
+            if not rows:
+                return "There are no scheduled tasks."
+            return "\n".join(
+                f"- {r['name']} [{r['expression']}] {'on' if r['enabled'] else 'paused'}, next {sched.describe(r)['next_run_text'] or '-'}, "
+                f"last {r['last_status'] or 'never run'}: {r['prompt'][:100]}" for r in rows
+            )
+        if not args.name:
+            raise ToolError("name is required")
+        name = args.name.strip().lower()
+        if args.action in ("pause", "resume"):
+            sched.set_enabled(name, args.action == "resume")
+            return f"Task {name!r} {'resumed' if args.action == 'resume' else 'paused'}."
+        if args.action == "run":
+            sched.run_now(name)
+            return f"Task {name!r} started; its result is delivered when it finishes."
+        payload: dict[str, Any] = {"action": args.action, "name": name}
+        if args.action == "remove":
+            sched.get(name)
+        else:
+            if args.action == "create":
+                if not args.schedule or not args.prompt:
+                    raise ToolError("schedule and prompt are required to create a task")
+                chat = _cron_chat(ctx, args.deliver)
+                sched.validate(name, args.schedule, args.prompt, chat)
+                payload.update(expression=args.schedule, prompt=args.prompt, deliver_chat=chat)
+            else:
+                sched.get(name)
+                if args.schedule:
+                    sched.parse(args.schedule)
+                    payload["expression"] = args.schedule
+                if args.prompt:
+                    payload["prompt"] = args.prompt
+                if len(payload) == 2:
+                    raise ToolError("give a new schedule or prompt")
+            if args.prompt:
+                try:
+                    sched.screen(args.prompt)
+                except SchedulerError as exc:
+                    services.store.journal_add("schedule", args.action, f"blocked: {name}", ctx.session_id, "blocked", {"reasons": str(exc)})
+                    raise
+        summary = f"{args.action} {name}" + (f" [{args.schedule}]" if args.schedule else "") + (f": {args.prompt[:60]}" if args.prompt else "")
+        wid = queue_write(services, "schedule", payload, ctx.session_id, args.action, summary)
+        preview = ""
+        if payload.get("expression"):
+            preview = " Next runs: " + ", ".join(sched.preview(payload["expression"], 2)) + "."
+        return f"Queued for the user's approval as #{wid}; nothing runs until they approve it.{preview}"
+    except SchedulerError as exc:
+        raise ToolError(str(exc)) from None
+
+
+# delegate, delegate_many
+
+
+class DelegateArgs(BaseModel):
+    """Arguments of delegate."""
+
+    agent: str = Field(description="Name of the sub-agent (see the Sub-agents list)")
+    task: str = Field(min_length=1, description="What it must do, complete and self-contained: it cannot see this conversation")
+    context: str = Field(default="", description="Facts it needs: names, addresses, earlier results")
+
+
+class DelegateJob(BaseModel):
+    """One job of delegate_many."""
+
+    agent: str = Field(description="Name of the sub-agent")
+    task: str = Field(min_length=1, description="What it must do, self-contained")
+    context: str = Field(default="", description="Facts it needs")
+
+
+class DelegateManyArgs(BaseModel):
+    """Arguments of delegate_many."""
+
+    jobs: list[DelegateJob] = Field(min_length=1, max_length=10, description="Independent tasks to run at the same time")
+
+
+def _delegation_ok(ctx: ToolContext) -> bool:
+    return not ctx.source.startswith("sub:")  # a sub-agent never delegates further
+
+
+def _answer(result: dict[str, Any]) -> str:
+    if result["status"] == "ok":
+        return str(result["output"])
+    return f"Error: the sub-agent {result['agent']!r} failed: {result['error']}"
+
+
+@registry.tool(
+    "delegate", "agents",
+    "Hand a self-contained task to a named sub-agent and get its final answer. It starts with no memory of this conversation, "
+    "so put everything it needs in task and context.",
+    DelegateArgs, available=_delegation_ok,
+)
+def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
+    """Run one sub-agent."""
+    import asyncio
+
+    from aifred.agents import AgentError
+
+    try:
+        return _answer(asyncio.run(ctx.services.agents.run(args.agent.strip().lower(), args.task, args.context, ctx)))
+    except AgentError as exc:
+        raise ToolError(str(exc)) from None
+
+
+@registry.tool(
+    "delegate_many", "agents",
+    "Run several independent tasks on sub-agents at the same time; the answers come back in the order given.",
+    DelegateManyArgs, available=_delegation_ok,
+)
+def delegate_many(ctx: ToolContext, args: DelegateManyArgs) -> str:
+    """Run several sub-agents in parallel."""
+    import asyncio
+
+    jobs = [(j.agent.strip().lower(), j.task, j.context) for j in args.jobs]
+    results = asyncio.run(ctx.services.agents.run_many(jobs, ctx))
+    return "\n\n".join(f"### {r['agent']}\n{_answer(r)}" for r in results)

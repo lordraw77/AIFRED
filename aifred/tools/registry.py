@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SOURCE_TO_GATEWAY = {"cli": "CLI", "telegram": "TELEGRAM", "api": "API", "web": "WEB"}
+SOURCE_TO_GATEWAY = {"cli": "CLI", "telegram": "TELEGRAM", "api": "API", "web": "WEB", "cron": "CRON"}
 RESTRICTED_TOOLSETS = frozenset({"search", "skills", "web"})
 """Toolsets an open (unauthenticated) gateway may use, further limited by each tool's ``restricted_ok``."""
 
@@ -46,12 +46,14 @@ class ToolContext:
         session_id: Calling session.
         source: Gateway name (``cli``, ``telegram``, ``api``, ``web``).
         restricted: Whether the caller is an open gateway user (spec 10.2).
+        toolsets: Exactly these toolsets are on, whatever the gateway's settings say (a sub-agent's own set, 14.1).
     """
 
     services: Services
     session_id: str
     source: str
     restricted: bool = False
+    toolsets: frozenset[str] | None = None
 
     @property
     def search_prefix(self) -> str | None:
@@ -177,7 +179,7 @@ class ToolRegistry:
 
         ``skip_help`` leaves out the ``help`` toolset, whose availability itself depends on this list.
         """
-        enabled = self.enabled_toolsets(ctx.services, ctx.source)
+        enabled = set(ctx.toolsets) if ctx.toolsets is not None else self.enabled_toolsets(ctx.services, ctx.source)
         out = []
         for tool in self.all():
             if skip_help and tool.toolset == "help":
