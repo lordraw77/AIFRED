@@ -12,9 +12,9 @@ import time
 from contextlib import AbstractContextManager
 from typing import Any
 
-_JSON_COLUMNS = ("header_names", "include", "exclude")
+_JSON_COLUMNS = ("header_names", "include", "exclude", "command")
 _FIELDS = (
-    "url", "enabled", "header_names", "verify_tls", "timeout", "connect_timeout", "protocol_version", "include", "exclude", "max_tools",
+    "url", "enabled", "header_names", "verify_tls", "timeout", "connect_timeout", "protocol_version", "include", "exclude", "max_tools", "command",
 )
 
 

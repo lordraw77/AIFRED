@@ -23,6 +23,7 @@ class McpServerIn(BaseModel):
     """
 
     url: str | None = None
+    command: str | list[str] | None = None   # a stdio server: the program and its arguments (needs MCP_STDIO_COMMANDS)
     enabled: bool | None = None
     headers: dict[str, str | None] | None = None
     verify_tls: bool | str | None = None

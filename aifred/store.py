@@ -444,6 +444,10 @@ _MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_rag_evals ON rag_evals(id);
     """,
+    # 11: MCP servers run as a child process over stdio
+    """
+    ALTER TABLE mcp_servers ADD COLUMN command TEXT NOT NULL DEFAULT '[]';
+    """,
 ]
 
 

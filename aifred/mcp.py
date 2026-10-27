@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
+import shlex
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -23,6 +26,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from aifred.mcp_client import McpClient, McpError, McpTool, SUPPORTED
+from aifred.mcp_stdio import StdioClient
 from aifred.providers import ProviderError, _verify_to_db
 from aifred.tools.registry import RawArgs, Tool, ToolContext, ToolError
 
@@ -39,6 +43,9 @@ RETRY_START, RETRY_MAX = 5.0, 60.0
 PROTOCOL_CHOICES = ("auto", *SUPPORTED)
 _RESERVED_HEADERS = frozenset({"content-type", "accept", "host", "content-length", "mcp-protocol-version", "mcp-session-id", "mcp-method", "mcp-name"})
 IMPORT_KEY = "mcp:imported"
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_FORBIDDEN_ENV = re.compile(r"^(PATH|HOME|LD_.*|DYLD_.*|PYTHONPATH|PYTHONHOME|PYTHONSTARTUP|NODE_OPTIONS|BASH_ENV|ENV|IFS)$", re.IGNORECASE)
+MAX_COMMAND_ITEMS, MAX_COMMAND_ITEM = 24, 500
 
 
 class McpConfigError(ValueError):
@@ -61,6 +68,12 @@ class McpServer:
     exclude: tuple[str, ...] = ()
     max_tools: int | None = None
     updated: float = 0.0
+    command: tuple[str, ...] = ()
+
+    @property
+    def stdio(self) -> bool:
+        """Whether the server is a child process instead of an HTTP endpoint."""
+        return bool(self.command)
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> McpServer:
@@ -68,6 +81,7 @@ class McpServer:
         return cls(
             row["name"], row["url"], row["enabled"], tuple(row["header_names"]), {"true": True, "false": False}.get(raw, raw),
             row["timeout"], row["connect_timeout"], row["protocol_version"], tuple(row["include"]), tuple(row["exclude"]), row["max_tools"], row["updated"],
+            tuple(row.get("command") or ()),
         )
 
 
@@ -95,6 +109,37 @@ def validate_headers(headers: Any) -> dict[str, str | None]:
     return out
 
 
+def validate_env(env: Any) -> dict[str, str | None]:
+    """Environment variables for a stdio server; a value of ``None`` means "keep the stored value"."""
+    if not isinstance(env, dict):
+        raise McpConfigError("the environment must be an object")
+    out: dict[str, str | None] = {}
+    for name, value in env.items():
+        if not _ENV_NAME.match(str(name)):
+            raise McpConfigError(f"invalid variable name {name!r}")
+        if _FORBIDDEN_ENV.match(str(name)):
+            raise McpConfigError(f"{name!r} is set by AIFRED and cannot be changed")
+        if value is None:
+            out[str(name)] = None
+        elif isinstance(value, str) and value and len(value) <= 2000 and "\x00" not in value:
+            out[str(name)] = value
+        else:
+            raise McpConfigError(f"invalid value for {name!r}")
+    return out
+
+
+def parse_command(value: Any) -> list[str]:
+    """A command given as a list, or as a string split like a shell would (no shell is ever run)."""
+    if isinstance(value, str):
+        try:
+            value = shlex.split(value)
+        except ValueError as exc:
+            raise McpConfigError(f"the command cannot be read: {exc}") from None
+    if not isinstance(value, list) or not value or len(value) > MAX_COMMAND_ITEMS or not all(isinstance(v, str) and 0 < len(v) <= MAX_COMMAND_ITEM and "\x00" not in v and "\n" not in v for v in value):
+        raise McpConfigError(f"the command must be 1 to {MAX_COMMAND_ITEMS} words (the program and its arguments)")
+    return value
+
+
 def _tool_name(server: str, tool: str, taken: set[str]) -> str:
     base = f"mcp__{server}__" + re.sub(r"[^A-Za-z0-9_-]", "_", tool)
     name = base
@@ -114,10 +159,11 @@ class McpService:
         config: Runtime settings (default timeouts and tool cap).
     """
 
-    def __init__(self, store: Store, vault: Vault, config: RuntimeConfig) -> None:
+    def __init__(self, store: Store, vault: Vault, config: RuntimeConfig, workdir: Path | None = None) -> None:
         self._store = store
         self._vault = vault
         self._config = config
+        self._workdir = workdir or Path(tempfile.gettempdir()) / "aifred-mcp"
 
     def list(self) -> list[McpServer]:
         """Every defined server."""
@@ -141,6 +187,10 @@ class McpService:
             return {}
         return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
 
+    def workdir(self, name: str) -> Path:
+        """The private working directory of a stdio server."""
+        return self._workdir / name
+
     def defaults(self) -> tuple[float, float, int]:
         """Default call timeout, connect timeout and tool cap from the settings."""
         c = self._config
@@ -150,7 +200,7 @@ class McpService:
         """Dashboard view: header names only, never values."""
         call, connect, cap = self.defaults()
         return {
-            "name": server.name, "url": server.url, "enabled": server.enabled, "headers": list(server.header_names),
+            "name": server.name, "url": server.url, "enabled": server.enabled, "headers": list(server.header_names), "command": list(server.command),
             "verify_tls": server.verify_tls, "tls_unverified": server.verify_tls is False,
             "timeout": server.timeout or call, "connect_timeout": server.connect_timeout or connect,
             "protocol_version": server.protocol_version, "include": list(server.include), "exclude": list(server.exclude),
@@ -166,15 +216,32 @@ class McpService:
         if not NAME_RE.match(name):
             raise McpConfigError("the server name must be 1-24 characters of a-z, 0-9 and underscore")
         out: dict[str, Any] = {}
-        url = data.get("url", current.url if current else None)
-        if not isinstance(url, str) or not url.strip():
-            raise McpConfigError("url is required")
-        parts = urlsplit(url.strip())
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise McpConfigError("url must be http:// or https:// with a host")
-        if parts.username or parts.password:
-            raise McpConfigError("put credentials in a header, not in the URL")
-        out["url"] = url.strip()
+        command: list[str] | None = None
+        if "command" in data:
+            command = parse_command(data["command"]) if data["command"] not in (None, "", []) else []
+        elif current and current.command:
+            command = list(current.command)
+        if command:
+            allowed = {str(x) for x in self._config.get("MCP_STDIO_COMMANDS")}
+            program = command[0]
+            if "/" in program and not program.startswith("/"):
+                raise McpConfigError("the program must be a name on the path or an absolute path, not a relative one")
+            if os.path.basename(program) not in allowed:
+                raise McpConfigError(f"{os.path.basename(program)!r} is not allowed: add it to MCP_STDIO_COMMANDS on the Config page first (a stdio server runs inside AIFRED with its privileges)")
+            out["command"] = command
+            out["url"] = f"stdio://{name}"
+        else:
+            if "command" in data:
+                out["command"] = []
+            url = data.get("url", current.url if current else None)
+            if not isinstance(url, str) or not url.strip() or url.startswith("stdio://"):
+                raise McpConfigError("url is required")
+            parts = urlsplit(url.strip())
+            if parts.scheme not in ("http", "https") or not parts.hostname:
+                raise McpConfigError("url must be http:// or https:// with a host")
+            if parts.username or parts.password:
+                raise McpConfigError("put credentials in a header, not in the URL")
+            out["url"] = url.strip()
         if "enabled" in data:
             if not isinstance(data["enabled"], bool):
                 raise McpConfigError("enabled must be true or false")
@@ -217,7 +284,7 @@ class McpService:
                 out[field_name] = list(dict.fromkeys(value))
         full: dict[str, str] | None = None
         if "headers" in data:
-            requested = validate_headers(data["headers"])
+            requested = validate_env(data["headers"]) if command else validate_headers(data["headers"])
             stored = self.headers(name) if current else {}
             full = {}
             for header, value in requested.items():
@@ -235,7 +302,7 @@ class McpService:
         values, headers = self.normalise(name, data, current)
         merged = {**(self._store.mcp_server_get(name) or {"name": name, "enabled": True, "header_names": [], "include": [], "exclude": [],
                                                            "verify_tls": "true", "timeout": None, "connect_timeout": None,
-                                                           "protocol_version": "auto", "max_tools": None, "updated": 0.0}), **values, "name": name}
+                                                           "protocol_version": "auto", "max_tools": None, "updated": 0.0, "command": []}), **values, "name": name}
         return McpServer.from_row(merged), (headers if headers is not None else (self.headers(name) if current else {}))
 
     def save(self, name: str, data: dict[str, Any]) -> McpServer:
@@ -278,7 +345,7 @@ class McpService:
         """The import format without header values."""
         servers: dict[str, Any] = {}
         for s in self.list():
-            entry: dict[str, Any] = {"url": s.url}
+            entry: dict[str, Any] = {"command": list(s.command)} if s.stdio else {"url": s.url}
             if not s.enabled:
                 entry["enabled"] = False
             if s.header_names:
@@ -387,6 +454,11 @@ class McpManager:
 
     def _default_factory(self, server: McpServer, headers: dict[str, str]) -> McpClient:
         call, connect, _ = self._service.defaults()
+        if server.stdio:    # for a stdio server the stored "headers" are its environment variables
+            return StdioClient(
+                list(server.command), headers, self._service.workdir(server.name), timeout=server.timeout or call,
+                connect_timeout=server.connect_timeout or connect, name=server.name,
+            )
         return McpClient(
             server.url, headers, verify=server.verify_tls, timeout=server.timeout or call,
             connect_timeout=server.connect_timeout or connect, protocol_version=server.protocol_version,

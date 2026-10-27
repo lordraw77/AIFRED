@@ -38,7 +38,7 @@ export default {
           s.protocol && badge(s.protocol), s.tls_unverified && badge("TLS not verified", "warn"), !s.enabled && badge("disabled", "warn"),
           test, button("Edit", () => { editing = s.name; draw(); }, { small: true, iconName: "edit" }),
           dangerButton("Delete", async () => { if (await attempt(() => del(`/api/mcp/servers/${encodeURIComponent(s.name)}`), "Server deleted")) draw(); })),
-        h("div", { class: "mono muted" }, s.url), h("div", { class: "mono" }, `${s.tools} tools exposed${s.latency_ms !== null && s.latency_ms !== undefined ? ` · ${s.latency_ms} ms` : ""} · call timeout ${s.timeout} s`),
+        h("div", { class: "mono muted" }, s.command && s.command.length ? `command: ${s.command.join(" ")}` : s.url), h("div", { class: "mono" }, `${s.tools} tools exposed${s.latency_ms !== null && s.latency_ms !== undefined ? ` · ${s.latency_ms} ms` : ""} · call timeout ${s.timeout} s`),
         s.error && h("div", { class: "notice err" }, s.error),
         s.enabled ? toolsetSwitches(`mcp:${s.name}`) : null,
         instructionBlock(s),
@@ -59,7 +59,8 @@ export default {
     function form(s) {
       const isNew = !s;
       const name = h("input", { type: "text", value: s ? s.name : "", readonly: !isNew || null, placeholder: "linux_mcp", pattern: "[a-z0-9_]{1,24}" });
-      const url = h("input", { type: "url", value: s ? s.url : "", placeholder: "http://10.70.0.20:8080/mcp" });
+      const url = h("input", { type: "url", value: s && !(s.command && s.command.length) ? s.url : "", placeholder: "http://10.70.0.20:8080/mcp" });
+      const command = h("input", { type: "text", value: s && s.command && s.command.length ? s.command.join(" ") : "", placeholder: "uvx my-mcp-server --flag (instead of a URL; the program must be listed in MCP_STDIO_COMMANDS)", "aria-label": "Command" });
       const verify = h("select", {}, h("option", { value: "true" }, "Verify the certificate"), h("option", { value: "false" }, "Do not verify (self-signed)"), h("option", { value: "ca" }, "Use a CA file…"));
       const ca = h("input", { type: "text", placeholder: "/data/certs/corp-ca.pem", hidden: true });
       if (s && s.verify_tls === false) verify.value = "false"; else if (s && typeof s.verify_tls === "string") { verify.value = "ca"; ca.value = s.verify_tls; ca.hidden = false; }
@@ -84,6 +85,7 @@ export default {
       const skip = h("input", { type: "checkbox" });
       const note = notes[s ? s.name : ""] || { text: "", enabled: true };
       const draftServer = () => {
+        if (command.value.trim()) { toast("A draft needs the server's tools: save a command server first, then use Generate", "err"); return null; }
         if (!name.value.trim() || !url.value.trim()) { toast("Fill in the name and the URL first: the draft is based on the tools the server offers", "err"); return null; }
         const out = { name: name.value.trim(), url: url.value.trim(), verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true" };
         const hs = {};
@@ -99,7 +101,8 @@ export default {
         submit.disabled = true;
         const headers = {};
         for (const r of headerRows) if (r.n.value.trim()) headers[r.n.value.trim()] = r.v.value || (r.stored ? null : "");
-        const bodyOut = { url: url.value.trim(), enabled: enabled.checked, headers, verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true",
+        const stdio = Boolean(command.value.trim());
+        const bodyOut = { ...(stdio ? { command: command.value.trim() } : { url: url.value.trim(), ...(s && s.command && s.command.length ? { command: [] } : {}) }), enabled: enabled.checked, headers, verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true",
           timeout: timeout.value ? Number(timeout.value) : null, connect_timeout: connect.value ? Number(connect.value) : null, max_tools: maxTools.value ? Number(maxTools.value) : null,
           include: list(include.value), exclude: list(exclude.value), protocol_version: proto.value, skip_test: skip.checked };
         const written = editor.read().text.trim();
@@ -109,10 +112,10 @@ export default {
         submit.disabled = false;
         if (ok) { editing = null; setTimeout(draw, 300); }
       } },
-        h("div", { class: "grid2" }, field("Name", name, "a-z, 0-9 and _; becomes the toolset mcp:<name>"), field("URL", url), field("TLS", verify), field("CA file", ca),
+        h("div", { class: "grid2" }, field("Name", name, "a-z, 0-9 and _; becomes the toolset mcp:<name>"), field("URL", url), field("or Command", command, "Starts a program inside AIFRED instead of connecting to a URL."), field("TLS", verify), field("CA file", ca),
           field("Call timeout (s)", timeout), field("Connect timeout (s)", connect), field("Tool cap", maxTools), field("Protocol", proto), field("Only these tools", include), field("Never these tools", exclude)),
         h("div", { class: "label" }, isNew ? "What is this for? (required)" : "What is this for?"), editor,
-        h("div", { class: "label" }, "Headers (values are encrypted and never shown again)"), headersEl, h("div", { class: "row" }, button("Add header", () => addHeader(), { small: true, iconName: "plus" })),
+        h("div", { class: "label" }, "Headers, or environment variables for a command (values are encrypted and never shown again)"), headersEl, h("div", { class: "row" }, button("Add header", () => addHeader(), { small: true, iconName: "plus" })),
         h("div", { class: "row" }, h("label", { class: "check" }, enabled, "Enabled"), h("label", { class: "check" }, skip, "Save without testing")),
         h("div", { class: "row" }, submit, button("Cancel", () => { editing = null; draw(); })));
     }

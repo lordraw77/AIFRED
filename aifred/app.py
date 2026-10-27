@@ -168,7 +168,7 @@ class Services:
         self.scheduler = SchedulerService(self)
         self.agents = AgentService(self)
         self.assist = AssistService(self)
-        self.mcp = McpService(self.store, self.vault, self.config)
+        self.mcp = McpService(self.store, self.vault, self.config, self.settings.data_dir / "mcp-stdio")
         self.mcp_manager = McpManager(self.mcp, self.store)
         self.tools.add_source(self.mcp_manager.tools)
         self.config.subscribe(self._mcp_settings_changed)
