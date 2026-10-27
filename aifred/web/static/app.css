@@ -239,3 +239,7 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .thumb { width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--line); background: var(--bg); }
 .icon-btn { background: none; border: 0; color: var(--muted); padding: 4px; cursor: pointer; display: inline-flex; align-items: center; }
 .icon-btn:hover, .icon-btn:focus-visible { color: var(--err); }
+.gw-switch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.gw-switch .btn[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: var(--bg); }
+.switch-btn { background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 2px 4px; }
+.switch-btn:hover, .switch-btn:focus-visible { background: var(--surface-2); }

@@ -21,6 +21,7 @@ from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
 from aifred.review import ReviewService
+from aifred.assist import AssistService
 from aifred.agents import AgentService
 from aifred.scheduler import SchedulerService
 from aifred.skills import SkillStore
@@ -166,6 +167,7 @@ class Services:
         self.agent = Agent(self)
         self.scheduler = SchedulerService(self)
         self.agents = AgentService(self)
+        self.assist = AssistService(self)
         self.mcp = McpService(self.store, self.vault, self.config)
         self.mcp_manager = McpManager(self.mcp, self.store)
         self.tools.add_source(self.mcp_manager.tools)

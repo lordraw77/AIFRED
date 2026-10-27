@@ -1,4 +1,6 @@
 // Agents: named sub-agents the main agent can hand tasks to, each with its own role, model route, toolsets and limits.
+import { toolsetSwitches } from "../toolsets.js";
+import { assistButtons } from "../assist.js";
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
 
 const STATUS = { ok: "ok", error: "err", running: "warn" };
@@ -21,7 +23,7 @@ export default {
       if (!data.agents.length && editing === null) inner.append(empty("No sub-agent yet. A sub-agent is a specialist the main assistant can hand a task to, for example a researcher for the web."));
       if (editing === "") inner.append(form(null, data));
       for (const a of data.agents) inner.append(editing === a.name ? form(a, data) : card(a, data));
-      body.append(head, h("p", { class: "hint" }, "Add agents to the toolsets of a gateway (agents on the Config page) so the main assistant can use delegate. An agent never gets more than the gateway it is called from, cannot delegate further and is never available in an open Telegram chat. You can also call one yourself with /agent <name> <task>."));
+      body.append(head, h("div", { class: "stack" }, h("div", { class: "label" }, "Let the main assistant delegate (toolset agents)"), toolsetSwitches("agents")), h("p", { class: "hint" }, "Turn delegation on for a gateway with the switches above so the main assistant can use delegate. An agent never gets more than the gateway it is called from, cannot delegate further and is never available in an open Telegram chat. You can also call one yourself with /agent <name> <task>."));
     }
 
     function card(a, data) {
@@ -97,7 +99,9 @@ export default {
       });
       return h("div", { class: "item stack" },
         field("Name", name), field("What it is for", description, "One line the main assistant reads to decide when to hand a task over."),
+        assistButtons({ kind: "agent.description", getText: () => description.value, setText: (t) => { description.value = t; }, getContext: () => `Agent name: ${name.value}\nRole: ${role.value.slice(0, 800)}\nToolsets: ${list(toolsets).join(", ")}` }),
         field("Role", role, "The agent's instructions. It replaces the main persona and sees nothing of the conversation but the task."),
+        assistButtons({ kind: "agent.role", shorten: true, getText: () => role.value, setText: (t) => { role.value = t; }, getContext: () => `Agent name: ${name.value}\nWhat it is for: ${description.value}\nToolsets: ${list(toolsets).join(", ")}` }),
         field("Model route", route), field("Toolsets", toolsets, `Choose from: ${data.toolsets.join(", ")}, mcp:<server>. Limited to what the calling gateway has.`),
         field("Skills", skills, `Preloaded into its prompt. Available: ${data.skills.join(", ") || "none yet"}.`),
         field("Memory", memory, "none: no access; read: sees your notes and profile; write: may also save (WRITE_APPROVAL applies)."),

@@ -1,4 +1,5 @@
 // Skills: list, Markdown preview, body editing and deletion (the agent can create skills but not delete them).
+import { assistButtons } from "../assist.js";
 import { attempt, badge, button, clear, dangerButton, del, empty, field, get, h, panel, put, skeleton } from "../core.js";
 import { renderMarkdown } from "../md.js";
 
@@ -42,7 +43,7 @@ export default {
       if (!skill.isNew) actions.append(dangerButton("Delete", async () => {
         if (await attempt(() => del(`/api/skills/${encodeURIComponent(skill.name)}`), "Skill deleted")) { skills = await get("/api/skills"); current = null; clear(right); drawList(); }
       }));
-      right.append(panel(skill.isNew ? "New skill" : skill.name, "skills", field("Name", name, skill.isNew ? "Letters, digits, - and _" : null), field("Description", description, "One line: when should the agent use it?"), mode, body, preview, actions));
+      right.append(panel(skill.isNew ? "New skill" : skill.name, "skills", field("Name", name, skill.isNew ? "Letters, digits, - and _" : null), field("Description", description, "One line: when should the agent use it?"), assistButtons({ kind: "skill.description", getText: () => description.value, setText: (t) => { description.value = t; }, getContext: () => `Skill name: ${name.value}\n${body.value.slice(0, 1200)}` }), mode, body, preview, actions));
     }
 
     drawList();

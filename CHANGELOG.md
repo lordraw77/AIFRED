@@ -2,6 +2,13 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.3.0] - 2026-10-27
+
+### Added
+- **Description assistant.** Next to every instruction on the Tools and MCP pages: Generate, Improve and Shorten, and **Test**, which dry-runs the model's tool choice on about 8 test requests (written by the model or by you) with the real tool definitions and shows a score, pass or fail per request and the score of the saved text; **Refine and test** lets the model rewrite the text up to 3 times and keeps the best. No tool is executed and no memory or profile is sent. Accepting a tested text journals its score. Improve and Generate also on a sub-agent's description and role and on a skill's description. Settings `ASSIST_EVALUATIONS_PER_HOUR`; API `POST /api/assist/evaluate` and `/api/assist/improve`.
+- **Context compression.** When a conversation's history grows past `COMPRESS_TRIGGER_TOKENS` (12,000 estimated tokens) the older messages are condensed into notes that replace them in what the model receives; the newest `COMPRESS_KEEP_MESSAGES` (8) stay word for word and nothing is deleted from the record. Summaries are framed as context, never as instructions, are scanned for injected instructions and can use a cheaper model through `ROUTE_COMPRESS`. A failed summary leaves the conversation as it was. Database migration 9.
+- Switches to turn a toolset on or off per gateway (CLI, Web, API, Telegram, Scheduled) or everywhere, so `TOOLSETS` and `TOOLSETS_<GATEWAY>` no longer have to be edited by hand: on the Tools page (every cell of the matrix, which now has a Scheduled column), on each MCP server, on the Agents page (delegation) and on the Schedules page (the `cron` tool). A gateway without its own list gets a copy of the shared one with the change, so the others do not move. `GET`/`PUT /api/toolsets/{name}`.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added

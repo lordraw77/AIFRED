@@ -24,6 +24,12 @@ DRAFT_TARGET = 600
 SUGGEST_PROMPT = """You write the short note that tells an AI assistant what a group of tools is FOR, so it picks the right tool without being told.
 Write plain text, at most 600 characters, in the language of the admin's hint (English if there is none), with these parts in this order: what it gives access to; "Use it when": the kinds of request it fits; "Do not use it for": near misses that belong to another tool; key names, address ranges or limits.
 Base it ONLY on the facts given below. Do not invent capabilities. State how it differs from the other notes if they overlap. Reply with the note only, no preamble, no Markdown fences."""
+MODES = ("generate", "improve", "shorten")
+MODE_PROMPTS = {
+    "generate": "",
+    "improve": "\nRewrite the current note: keep every statement that is correct, fix what is vague or wrong against the facts, and add what is missing.",
+    "shorten": f"\nCut the current note to at most {DRAFT_TARGET} characters without losing when to use it and when not to.",
+}
 SHORT_CHARS = 160
 INTERNAL_TOOLSETS = frozenset({"help", "review"})
 """Toolsets that are not the admin's to configure: ``help`` is always on, ``review`` only exists inside the background review."""
@@ -97,7 +103,7 @@ class InstructionService:
             if len(text) > MAX_TEXT:
                 raise InstructionError(f"the instruction is too long ({len(text):,} > {MAX_TEXT:,} characters)")
 
-    def set(self, scope: str, text: str, *, enabled: bool = True, session_id: str | None = None) -> None:
+    def set(self, scope: str, text: str, *, enabled: bool = True, session_id: str | None = None, score: str = "") -> None:
         """Create or replace an instruction (journaled with the previous text so it can be undone).
 
         Raises:
@@ -108,8 +114,8 @@ class InstructionService:
         text = text.strip()
         self._s.store.instruction_set(scope, text, enabled)
         self._s.store.journal_add(
-            "instruction", "update" if previous else "create", f"{scope}: {first_sentence(text, 100)}", session_id, "applied",
-            {"scope": scope, "previous": previous["text"] if previous else None, "previous_enabled": previous["enabled"] if previous else None},
+            "instruction", "update" if previous else "create", f"{scope}: {first_sentence(text, 100)}" + (f" [test {score}]" if score else ""), session_id, "applied",
+            {"scope": scope, "previous": previous["text"] if previous else None, "previous_enabled": previous["enabled"] if previous else None, "score": score or None},
         )
 
     def delete(self, scope: str) -> bool:
@@ -132,10 +138,15 @@ class InstructionService:
 
     # What a gateway can see
 
-    def visible(self, ctx: ToolContext) -> list[Entry]:
-        """The documented (or undocumented MCP) groups available to this context, in a stable order."""
+    def visible(self, ctx: ToolContext, override: dict[str, str] | None = None) -> list[Entry]:
+        """The documented (or undocumented MCP) groups available to this context, in a stable order.
+
+        ``override`` replaces the stored text of some scopes for this call only (the assistant tests a draft this way).
+        """
         s = self._s
         stored = {r["scope"]: r for r in s.store.instruction_list() if r["enabled"]}
+        for scope, text in (override or {}).items():
+            stored[scope] = {"scope": scope, "text": text, "enabled": True}
         groups: dict[str, list[Tool]] = {}
         for tool in s.tools.for_context(ctx, skip_help=True):
             groups.setdefault(tool.toolset, []).append(tool)
@@ -167,9 +178,9 @@ class InstructionService:
         """Whether there is anything to explain (``tool_help`` is only offered then)."""
         return bool(self.visible(ctx))
 
-    def capabilities(self, ctx: ToolContext) -> str:
+    def capabilities(self, ctx: ToolContext, override: dict[str, str] | None = None) -> str:
         """The Capabilities section for the system prompt (empty when there is nothing to say)."""
-        entries = self.visible(ctx)
+        entries = self.visible(ctx, override)
         if not entries:
             return ""
         budget = int(self._s.config.get("INSTRUCTIONS_BUDGET"))
@@ -241,13 +252,18 @@ class InstructionService:
         found = [t for t in s.tools.all() if (t.toolset == name if kind == "toolset" else t.name == name)]
         return name, [{"name": t.name, "description": t.description[:300], "params": list((t.raw_schema or t.args.model_json_schema()).get("properties", {}))[:20]} for t in found]
 
-    async def suggest(self, scope: str, hint: str = "", tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    async def suggest(
+        self, scope: str, hint: str = "", tools: list[dict[str, Any]] | None = None, *, mode: str = "generate", current: str = "",
+    ) -> dict[str, Any]:
         """Ask the model for a draft instruction; nothing is saved.
 
         Args:
             scope: What the draft is for.
             hint: Free text from the admin ("my local Linux servers").
             tools: Tool descriptions to use instead of the discovered ones (a server that is not saved yet).
+            mode: ``generate`` (from scratch), ``improve`` (rewrite ``current``, keeping what is right) or ``shorten``
+                (cut ``current`` to the target length without losing when to use it).
+            current: The text being improved or shortened.
 
         Raises:
             InstructionError: If there is nothing to base a draft on, or no model is available.
@@ -255,6 +271,10 @@ class InstructionService:
         import asyncio
 
         self.check(scope)
+        if mode not in MODES:
+            raise InstructionError(f"mode must be one of {', '.join(MODES)}")
+        if mode != "generate" and not current.strip():
+            raise InstructionError(f"there is no text to {mode}: write one or use Generate")
         s = self._s
         name, facts = await asyncio.to_thread(self._facts, scope, tools)
         if not facts:
@@ -263,13 +283,15 @@ class InstructionService:
         listing = "\n".join(f"- {t['name']}: {t.get('description', '')[:300]} (parameters: {', '.join(t.get('params', [])) or 'none'})" for t in facts[:60])
         user = (f"Target: {scope}\nTools:\n{listing}\n\nAdmin's hint: {hint.strip()[:500] or '(none)'}\n\n"
                 f"Other notes already written:\n{chr(10).join(others) or '(none)'}")
+        if mode != "generate":
+            user += f"\n\nCurrent note to {mode}:\n{current.strip()[:MAX_TEXT]}"
         try:
             try:
                 entries = s.llm.resolve("assist", "default")
             except RouteError:  # no route called assist: the default one drafts
                 entries = s.llm.resolve("default", "default")
             result, entry, _ = await s.llm.complete(
-                entries, [{"role": "system", "content": SUGGEST_PROMPT}, {"role": "user", "content": user}], None, route="assist", source="assist", agent="assist",
+                entries, [{"role": "system", "content": SUGGEST_PROMPT + MODE_PROMPTS[mode]}, {"role": "user", "content": user}], None, route="assist", source="assist", agent="assist",
             )
         except (NoProvider, RouteError, LLMError) as exc:
             raise InstructionError(f"no draft could be made: {exc}") from None

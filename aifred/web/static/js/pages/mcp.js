@@ -1,6 +1,7 @@
 // MCP: servers with state, detected protocol, tool count and latency; add, edit, enable, delete, test and reload (spec 9.2).
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, toast } from "../core.js";
 import { instructionEditor } from "../instr.js";
+import { toolsetSwitches } from "../toolsets.js";
 
 const DOT = { connected: "ok", error: "err", disabled: "off", connecting: "warn" };
 
@@ -22,7 +23,7 @@ export default {
       if (!servers.length && editing === null) inner.append(empty("No MCP server yet. A server gives the agent more tools, for example your Proxmox or Linux hosts."));
       if (editing === "") inner.append(form(null));
       for (const s of servers) inner.append(editing === s.name ? form(s) : card(s));
-      body.append(head, h("p", { class: "hint" }, "Enable a server's tools for a gateway by adding mcp or mcp:<name> to TOOLSETS on the Config page."));
+      body.append(head, h("p", { class: "hint" }, "Use the switches on each server to choose the gateways that may use its tools; the lists on the Config page are updated for you."));
     }
 
     function card(s) {
@@ -39,6 +40,7 @@ export default {
           dangerButton("Delete", async () => { if (await attempt(() => del(`/api/mcp/servers/${encodeURIComponent(s.name)}`), "Server deleted")) draw(); })),
         h("div", { class: "mono muted" }, s.url), h("div", { class: "mono" }, `${s.tools} tools exposed${s.latency_ms !== null && s.latency_ms !== undefined ? ` · ${s.latency_ms} ms` : ""} · call timeout ${s.timeout} s`),
         s.error && h("div", { class: "notice err" }, s.error),
+        s.enabled ? toolsetSwitches(`mcp:${s.name}`) : null,
         instructionBlock(s),
         s.dropped.length ? h("div", { class: "notice warn" }, `Dropped tools: ${s.dropped.map((d) => `${d.tool} (${d.reason})`).join("; ")}`) : null,
         (s.include.length || s.exclude.length) ? h("div", { class: "hint" }, `${s.include.length ? `only: ${s.include.join(", ")}  ` : ""}${s.exclude.length ? `not: ${s.exclude.join(", ")}` : ""}`) : null, result);

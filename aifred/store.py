@@ -416,6 +416,11 @@ _MIGRATIONS: list[str] = [
 
     ALTER TABLE sessions ADD COLUMN parent_id TEXT;
     """,
+    # 9: summary of the older part of a long conversation (context compression)
+    """
+    ALTER TABLE sessions ADD COLUMN summary TEXT NOT NULL DEFAULT '';
+    ALTER TABLE sessions ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -567,23 +572,39 @@ class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, 
             row["tool_calls"] = json.loads(row["tool_calls"]) if row["tool_calls"] else None
         return rows
 
-    def history(self, session_id: str, limit: int) -> list[dict[str, Any]]:
-        """Return the last ``limit`` messages in OpenAI chat format.
+    def window(self, session_id: str, limit: int, after_id: int = 0) -> list[dict[str, Any]]:
+        """The last ``limit`` stored messages after ``after_id``, starting at a ``user`` message.
 
-        Everything before the first ``user`` message of the window is dropped, so
-        the history never starts with an orphan tool result.
+        Everything before the first ``user`` message of the window is dropped, so the history never starts with an
+        orphan tool result.
         """
-        rows = self.messages(session_id, limit=limit)
+        rows = [r for r in self.messages(session_id, limit=limit) if r["id"] > after_id]
         start = next((i for i, r in enumerate(rows) if r["role"] == "user"), len(rows))
-        out: list[dict[str, Any]] = []
-        for row in rows[start:]:
-            msg: dict[str, Any] = {"role": row["role"], "content": row["content"]}
-            if row["tool_calls"]:
-                msg["tool_calls"] = row["tool_calls"]
-            if row["tool_call_id"]:
-                msg["tool_call_id"] = row["tool_call_id"]
-            out.append(msg)
-        return out
+        return rows[start:]
+
+    @staticmethod
+    def as_chat(row: dict[str, Any]) -> dict[str, Any]:
+        """A stored message in OpenAI chat format."""
+        msg: dict[str, Any] = {"role": row["role"], "content": row["content"]}
+        if row["tool_calls"]:
+            msg["tool_calls"] = row["tool_calls"]
+        if row["tool_call_id"]:
+            msg["tool_call_id"] = row["tool_call_id"]
+        return msg
+
+    def history(self, session_id: str, limit: int) -> list[dict[str, Any]]:
+        """Return the last ``limit`` messages in OpenAI chat format (see :meth:`window`)."""
+        return [self.as_chat(r) for r in self.window(session_id, limit)]
+
+    def session_summary(self, session_id: str) -> tuple[str, int]:
+        """The stored summary of a conversation's older messages and the id of the last message it covers."""
+        rows = self._query("SELECT summary, summary_upto FROM sessions WHERE id = ?", (session_id,))
+        return (rows[0]["summary"], rows[0]["summary_upto"]) if rows else ("", 0)
+
+    def set_session_summary(self, session_id: str, summary: str, upto: int) -> None:
+        """Replace a conversation's summary; messages up to ``upto`` are no longer sent to the model."""
+        with self._tx() as c:
+            c.execute("UPDATE sessions SET summary = ?, summary_upto = ? WHERE id = ?", (summary, upto, session_id))
 
     def search(
         self, query: str, exclude_session: str | None = None, limit: int = 5, only_prefix: str | None = None

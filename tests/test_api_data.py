@@ -117,13 +117,45 @@ def test_tools_overview(api: TestClient) -> None:
     services = services_of(api)
     services.config.update({"TOOLSETS": ["memory", "web"], "TOOLSETS_TELEGRAM": ["web"]})
     data = api.get("/api/tools").json()
-    assert data["gateways"] == ["CLI", "WEB", "API", "TELEGRAM"]
+    assert data["gateways"] == ["CLI", "WEB", "API", "TELEGRAM", "CRON"]
     by_name = {t["name"]: t for t in data["toolsets"]}
-    assert by_name["memory"]["enabled"] == {"CLI": True, "WEB": True, "API": True, "TELEGRAM": False}
+    assert by_name["memory"]["enabled"] == {"CLI": True, "WEB": True, "API": True, "TELEGRAM": False, "CRON": False}
     assert by_name["web"]["enabled"]["TELEGRAM"] is True and by_name["skills"]["enabled"]["CLI"] is False
     assert {t["name"] for t in by_name["memory"]["tools"]} == {"memory"} and by_name["search"]["tools"][0]["restricted_ok"] is True
     assert all(t["calls"] == 0 for t in by_name["memory"]["tools"])
     assert "help" not in by_name and "review" not in by_name  # internal toolsets are not the admin's to switch
+
+
+def test_toolset_switch_changes_only_the_chosen_gateways(api: TestClient) -> None:
+    services = services_of(api)
+    services.config.update({"TOOLSETS": ["memory", "web"]})
+    state = api.get("/api/toolsets/agents").json()
+    assert state["gateways"]["WEB"] is False and state["gateways"]["CRON"] is False
+    after = api.put("/api/toolsets/agents", json={"gateways": ["WEB", "TELEGRAM"], "on": True}).json()
+    assert after["gateways"] == {"CLI": False, "WEB": True, "API": False, "TELEGRAM": True, "CRON": False}
+    assert services.config.get("TOOLSETS") == ["memory", "web"]            # the shared list did not move
+    assert services.config.get("TOOLSETS_WEB") == ["memory", "web", "agents"]
+    assert api.put("/api/toolsets/agents", json={"gateways": ["WEB"], "on": False}).json()["gateways"]["WEB"] is False
+    assert services.config.get("TOOLSETS_WEB") == ["memory", "web"]
+    shared = api.put("/api/toolsets/agents", json={"gateways": ["ALL"], "on": True}).json()
+    assert shared["gateways"]["CLI"] is True and services.config.get("TOOLSETS") == ["memory", "web", "agents"]
+    cron = api.put("/api/toolsets/cron", json={"gateways": ["CRON"], "on": True}).json()
+    assert cron["gateways"]["CRON"] is True and "cron" in services.config.get("TOOLSETS_CRON")
+
+
+def test_toolset_switch_rejects_bad_input(api: TestClient) -> None:
+    assert api.put("/api/toolsets/nonsense", json={"gateways": ["WEB"], "on": True}).status_code == 404
+    assert api.get("/api/toolsets/nonsense").status_code == 404
+    assert api.put("/api/toolsets/memory", json={"gateways": ["MARS"], "on": True}).status_code == 422
+    assert api.put("/api/toolsets/memory", json={"gateways": [], "on": True}).status_code == 422
+    services = services_of(api)
+    services.config.update({"TOOLSETS": ["memory", "mcp"]})
+    assert api.put("/api/toolsets/mcp:x", json={"gateways": ["ALL"], "on": False}).status_code in (404, 409)
+
+
+def test_toolset_switch_needs_the_admin(client: TestClient) -> None:
+    assert client.put("/api/toolsets/memory", json={"gateways": ["WEB"], "on": True}).status_code in (401, 403)
+    assert client.get("/api/toolsets/memory").status_code == 401
 
 
 @pytest.mark.anyio
