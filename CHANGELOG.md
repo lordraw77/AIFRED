@@ -2,7 +2,7 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.4.0] - 2026-10-27
 
 ### Added
 - **Description assistant, rest.** Progress is streamed while a test runs (`POST /api/assist/evaluate/stream`), the `/assist <scope> [hint]` chat command drafts or improves an instruction and scores it without saving anything, and Generate/Improve can optionally use your profile and notes (names, address ranges) when you tick the box.
