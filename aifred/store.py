@@ -448,6 +448,10 @@ _MIGRATIONS: list[str] = [
     """
     ALTER TABLE mcp_servers ADD COLUMN command TEXT NOT NULL DEFAULT '[]';
     """,
+    # 12: MCP servers that sign in with OAuth
+    """
+    ALTER TABLE mcp_servers ADD COLUMN oauth INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

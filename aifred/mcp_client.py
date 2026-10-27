@@ -18,6 +18,7 @@ import logging
 import re
 import ssl
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -527,6 +528,23 @@ class McpClient:
                 return "Error: the server asked for further input (sampling, elicitation or roots), which AIFRED does not provide"
             return format_result(result)
         raise McpError("the server kept rejecting the request headers")  # pragma: no cover - loop always returns or raises
+
+
+class OAuthMcpClient(McpClient):
+    """An HTTP client whose ``Authorization`` header is a fresh OAuth access token on every request.
+
+    Args:
+        token: Called for each request; returns the current access token or raises :class:`McpError`.
+    """
+
+    def __init__(self, *args: Any, token: Callable[[], str], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._token = token
+
+    def _request_headers(self, method: str, name: str | None, extra: dict[str, str] | None) -> dict[str, str]:
+        headers = super()._request_headers(method, name, extra)
+        headers["Authorization"] = f"Bearer {self._token()}"
+        return headers
 
 
 def _short(exc: Exception) -> str:

@@ -170,6 +170,8 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("AGENT_MAX_AGENTS", "int", 20, "agents", "Most sub-agents that can be defined", minimum=1, maximum=200),
         SettingSpec("MCP_CONNECT_TIMEOUT", "int", 15, "mcp", "Default MCP connect timeout (s)", minimum=1, maximum=600),
         SettingSpec("MCP_STDIO_COMMANDS", "list", [], "mcp", "Executables the dashboard may start as MCP servers over stdio, by file name (empty: stdio servers are off). A server runs inside the AIFRED container with its privileges, so list only what you trust", item_pattern=re.compile(r"^[A-Za-z0-9._+-]{1,64}$")),
+        SettingSpec("MCP_OAUTH_CLIENT_ID", "str", "", "mcp", "Client id for OAuth sign-in to MCP servers, registered by hand with their provider (empty: use the client metadata document below)"),
+        SettingSpec("MCP_OAUTH_PUBLIC_URL", "url", "", "mcp", "https address where AIFRED is reachable from the internet; AIFRED then serves the client metadata document an authorization server fetches (empty: off)"),
         SettingSpec("MCP_CALL_TIMEOUT", "int", 120, "mcp", "Default MCP call timeout (s)", minimum=1, maximum=3600),
         SettingSpec("MCP_MAX_TOOLS_PER_SERVER", "int", 40, "mcp", "Cap on tools exposed per MCP server", minimum=1, maximum=500),
         SettingSpec(

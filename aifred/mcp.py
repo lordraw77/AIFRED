@@ -25,7 +25,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from aifred.mcp_client import McpClient, McpError, McpTool, SUPPORTED
+from aifred.mcp_client import McpClient, McpError, McpTool, OAuthMcpClient, SUPPORTED
+from aifred.mcp_oauth import OAuthError, OAuthService
 from aifred.mcp_stdio import StdioClient
 from aifred.providers import ProviderError, _verify_to_db
 from aifred.tools.registry import RawArgs, Tool, ToolContext, ToolError
@@ -69,6 +70,7 @@ class McpServer:
     max_tools: int | None = None
     updated: float = 0.0
     command: tuple[str, ...] = ()
+    oauth: bool = False
 
     @property
     def stdio(self) -> bool:
@@ -81,7 +83,7 @@ class McpServer:
         return cls(
             row["name"], row["url"], row["enabled"], tuple(row["header_names"]), {"true": True, "false": False}.get(raw, raw),
             row["timeout"], row["connect_timeout"], row["protocol_version"], tuple(row["include"]), tuple(row["exclude"]), row["max_tools"], row["updated"],
-            tuple(row.get("command") or ()),
+            tuple(row.get("command") or ()), bool(row.get("oauth")),
         )
 
 
@@ -164,6 +166,7 @@ class McpService:
         self._vault = vault
         self._config = config
         self._workdir = workdir or Path(tempfile.gettempdir()) / "aifred-mcp"
+        self.oauth = OAuthService(vault, config)
 
     def list(self) -> list[McpServer]:
         """Every defined server."""
@@ -200,7 +203,8 @@ class McpService:
         """Dashboard view: header names only, never values."""
         call, connect, cap = self.defaults()
         return {
-            "name": server.name, "url": server.url, "enabled": server.enabled, "headers": list(server.header_names), "command": list(server.command),
+            "name": server.name, "url": server.url, "enabled": server.enabled, "headers": list(server.header_names), "command": list(server.command), "oauth": server.oauth,
+            "oauth_status": self.oauth.status(server.name) if server.oauth else None,
             "verify_tls": server.verify_tls, "tls_unverified": server.verify_tls is False,
             "timeout": server.timeout or call, "connect_timeout": server.connect_timeout or connect,
             "protocol_version": server.protocol_version, "include": list(server.include), "exclude": list(server.exclude),
@@ -242,6 +246,14 @@ class McpService:
             if parts.username or parts.password:
                 raise McpConfigError("put credentials in a header, not in the URL")
             out["url"] = url.strip()
+        if "oauth" in data:
+            if not isinstance(data["oauth"], bool):
+                raise McpConfigError("oauth must be true or false")
+            if data["oauth"] and command:
+                raise McpConfigError("OAuth sign-in is for web servers, not for commands")
+            out["oauth"] = data["oauth"]
+        elif command and current and current.oauth:
+            out["oauth"] = False
         if "enabled" in data:
             if not isinstance(data["enabled"], bool):
                 raise McpConfigError("enabled must be true or false")
@@ -302,7 +314,7 @@ class McpService:
         values, headers = self.normalise(name, data, current)
         merged = {**(self._store.mcp_server_get(name) or {"name": name, "enabled": True, "header_names": [], "include": [], "exclude": [],
                                                            "verify_tls": "true", "timeout": None, "connect_timeout": None,
-                                                           "protocol_version": "auto", "max_tools": None, "updated": 0.0, "command": []}), **values, "name": name}
+                                                           "protocol_version": "auto", "max_tools": None, "updated": 0.0, "command": [], "oauth": False}), **values, "name": name}
         return McpServer.from_row(merged), (headers if headers is not None else (self.headers(name) if current else {}))
 
     def save(self, name: str, data: dict[str, Any]) -> McpServer:
@@ -337,6 +349,7 @@ class McpService:
         if not self._store.mcp_server_delete(name):
             raise McpConfigError(f"no MCP server named {name!r}")
         self._vault.delete(secret_name(name))
+        self.oauth.forget(name)
         self._store.instruction_delete(f"mcp:{name}")
         self._store.instruction_delete_prefix(f"tool:mcp__{name}__")
         self._store.journal_add("settings", "mcp_server", f"MCP server {name!r} deleted")
@@ -346,6 +359,8 @@ class McpService:
         servers: dict[str, Any] = {}
         for s in self.list():
             entry: dict[str, Any] = {"command": list(s.command)} if s.stdio else {"url": s.url}
+            if s.oauth:
+                entry["oauth"] = True
             if not s.enabled:
                 entry["enabled"] = False
             if s.header_names:
@@ -458,6 +473,17 @@ class McpManager:
             return StdioClient(
                 list(server.command), headers, self._service.workdir(server.name), timeout=server.timeout or call,
                 connect_timeout=server.connect_timeout or connect, name=server.name,
+            )
+        if server.oauth:
+            def token() -> str:
+                try:
+                    return self._service.oauth.token(server.name)
+                except OAuthError as exc:
+                    raise McpError(str(exc), status=401) from None
+
+            return OAuthMcpClient(
+                server.url, headers, verify=server.verify_tls, timeout=server.timeout or call,
+                connect_timeout=server.connect_timeout or connect, protocol_version=server.protocol_version, token=token,
             )
         return McpClient(
             server.url, headers, verify=server.verify_tls, timeout=server.timeout or call,

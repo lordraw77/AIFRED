@@ -33,12 +33,20 @@ export default {
         const r = await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(s.name)}/test`));
         if (r) toast(r.ok ? `Connected, protocol ${r.protocol}, ${r.tools.length} tools in ${r.latency_ms} ms` : `Failed: ${r.error}`, r.ok ? "ok" : "err");
       });
+      const signIn = s.oauth ? h("div", { class: "row" },
+        badge(s.oauth_status && s.oauth_status.authorized ? "OAuth: signed in" : "OAuth: not signed in", s.oauth_status && s.oauth_status.authorized ? "ok" : "warn"),
+        button(s.oauth_status && s.oauth_status.authorized ? "Sign in again" : "Authorize", async () => {
+          const r = await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(s.name)}/oauth/start`));
+          if (r) { window.open(r.url, "_blank", "noopener"); toast("Finish signing in in the new tab, then come back and reload this page"); }
+        }, { small: true, primary: !(s.oauth_status && s.oauth_status.authorized) }),
+        s.oauth_status && s.oauth_status.authorized ? button("Forget the sign-in", async () => { if (await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(s.name)}/oauth/forget`), "Signed out")) setTimeout(draw, 500); }, { small: true }) : null) : null;
       return h("div", { class: "item" },
         h("div", { class: "item-head" }, h("span", { class: `dot ${DOT[s.state] || "off"}` }), h("span", { class: "title" }, s.name), badge(s.state, DOT[s.state] === "ok" ? "ok" : DOT[s.state] === "err" ? "err" : ""),
           s.protocol && badge(s.protocol), s.tls_unverified && badge("TLS not verified", "warn"), !s.enabled && badge("disabled", "warn"),
           test, button("Edit", () => { editing = s.name; draw(); }, { small: true, iconName: "edit" }),
           dangerButton("Delete", async () => { if (await attempt(() => del(`/api/mcp/servers/${encodeURIComponent(s.name)}`), "Server deleted")) draw(); })),
         h("div", { class: "mono muted" }, s.command && s.command.length ? `command: ${s.command.join(" ")}` : s.url), h("div", { class: "mono" }, `${s.tools} tools exposed${s.latency_ms !== null && s.latency_ms !== undefined ? ` · ${s.latency_ms} ms` : ""} · call timeout ${s.timeout} s`),
+        signIn,
         s.error && h("div", { class: "notice err" }, s.error),
         s.enabled ? toolsetSwitches(`mcp:${s.name}`) : null,
         instructionBlock(s),
@@ -83,6 +91,7 @@ export default {
       const proto = h("select", {}, ["auto", "2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"].map((p) => h("option", { value: p }, p))); proto.value = s ? s.protocol_version : "auto";
       const enabled = h("input", { type: "checkbox" }); enabled.checked = s ? s.enabled : true;
       const skip = h("input", { type: "checkbox" });
+      const oauth = h("input", { type: "checkbox" }); oauth.checked = s ? Boolean(s.oauth) : false;
       const note = notes[s ? s.name : ""] || { text: "", enabled: true };
       const draftServer = () => {
         if (command.value.trim()) { toast("A draft needs the server's tools: save a command server first, then use Generate", "err"); return null; }
@@ -104,7 +113,7 @@ export default {
         const stdio = Boolean(command.value.trim());
         const bodyOut = { ...(stdio ? { command: command.value.trim() } : { url: url.value.trim(), ...(s && s.command && s.command.length ? { command: [] } : {}) }), enabled: enabled.checked, headers, verify_tls: verify.value === "ca" ? ca.value.trim() : verify.value === "true",
           timeout: timeout.value ? Number(timeout.value) : null, connect_timeout: connect.value ? Number(connect.value) : null, max_tools: maxTools.value ? Number(maxTools.value) : null,
-          include: list(include.value), exclude: list(exclude.value), protocol_version: proto.value, skip_test: skip.checked };
+          include: list(include.value), exclude: list(exclude.value), protocol_version: proto.value, skip_test: skip.checked, oauth: oauth.checked && !stdio };
         const written = editor.read().text.trim();
         if (isNew && !written) { toast("What is this for? is required: say when the agent should use this server", "err"); submit.disabled = false; return; }
         if (written) bodyOut.instruction = written;
@@ -116,7 +125,8 @@ export default {
           field("Call timeout (s)", timeout), field("Connect timeout (s)", connect), field("Tool cap", maxTools), field("Protocol", proto), field("Only these tools", include), field("Never these tools", exclude)),
         h("div", { class: "label" }, isNew ? "What is this for? (required)" : "What is this for?"), editor,
         h("div", { class: "label" }, "Headers, or environment variables for a command (values are encrypted and never shown again)"), headersEl, h("div", { class: "row" }, button("Add header", () => addHeader(), { small: true, iconName: "plus" })),
-        h("div", { class: "row" }, h("label", { class: "check" }, enabled, "Enabled"), h("label", { class: "check" }, skip, "Save without testing")),
+        h("div", { class: "row" }, h("label", { class: "check" }, enabled, "Enabled"), h("label", { class: "check" }, skip, "Save without testing"),
+          h("label", { class: "check", title: "The server asks you to sign in with its provider in the browser. Needs MCP_OAUTH_CLIENT_ID or MCP_OAUTH_PUBLIC_URL on the Config page." }, oauth, "Sign in with OAuth")),
         h("div", { class: "row" }, submit, button("Cancel", () => { editing = null; draw(); })));
     }
 
