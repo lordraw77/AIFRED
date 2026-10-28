@@ -68,7 +68,7 @@ def test_parse_invalid(key: str, raw: object) -> None:
 
 def test_defaults(config: RuntimeConfig) -> None:
     assert config.get("LLM_TEMPERATURE") == 0.6
-    assert config.get("TOOLSETS") == ["memory", "search", "skills", "web", "file"]
+    assert config.get("TOOLSETS") == ["memory", "search", "skills", "web", "file", "library"]
     assert config.get("TOOLSETS_CLI") is None
     assert config.get("TELEGRAM_TOKEN") is None
     with pytest.raises(KeyError):

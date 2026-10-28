@@ -137,6 +137,9 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `MCP_OAUTH_CLIENT_ID` / `MCP_OAUTH_PUBLIC_URL` | empty | Client id registered by hand / public https address for the client metadata document |
 | `MCP_MAX_TOOLS_PER_SERVER` | `40` | Cap on tools exposed per MCP server |
 | `INSTRUCTIONS_BUDGET` | `3000` | Maximum characters of the Capabilities section of the system prompt (9.3) |
+| `LIBRARY_ITEM_CHARS` | `20000` | Largest library item (characters) |
+| `LIBRARY_MAX_ITEMS` | `500` | Most library items |
+| `LIBRARY_PROMPT_ITEMS` | `30` | Latest titles listed in the system prompt (0: none) |
 | `RAG_ENABLED` | `false` | Turns the knowledge base on: ingestion worker, API and dashboard page (9.4). The model can use it only where the `knowledge` toolset is also enabled |
 | `RAG_EMBED_PROVIDER` / `RAG_EMBED_MODEL` | empty | Provider slug and embedding model, chosen by the user and overridable per collection. Nothing defaults to an external provider |
 | `RAG_CHUNK_CHARS` / `RAG_CHUNK_OVERLAP` | `1200` / `150` | Target chunk size and overlap (characters) |
@@ -410,6 +413,9 @@ Every tool is defined by a Pydantic model: the JSON schema sent to the model and
 | `web_search` | `query` | Only when `SEARXNG_URL` is set |
 | `file_list` / `file_read` / `file_write` | `path`, `content`, `append` | Confined to `data/workspace`; `file_read` returns at most 20,000 characters per call and never more than `TOOL_OUTPUT_LIMIT` minus room for the paging note, which gives the `offset` of the next page |
 | `knowledge_search` | `query`, `collection`, `limit` (1–10) | Hybrid search of the knowledge base (9.4); needs `RAG_ENABLED` and the `knowledge` toolset |
+| `library_search` | `query`, `limit` (1–10) | Best matching library items (id, title, tags, snippet); needs the `library` toolset (14.2) |
+| `library_get` | `item` (id or title) | One library item in full |
+| `library_save` | `title`, `content`, `tags`, `prompt`, `replace` | Save a text; scanned, queued under `WRITE_APPROVAL=all`, refuses an existing title unless `replace` |
 | `knowledge_sources` | none | Lists collections with description, document and chunk counts and state (9.4) |
 | `tool_help` | `name` | Full instruction text of a server, toolset or tool when the Capabilities section was shortened (9.3); always available |
 | `terminal` | `command`, `timeout` | Only when the `terminal` toolset is enabled |
@@ -434,6 +440,7 @@ Tools are grouped into toolsets enabled with `TOOLSETS` (comma-separated, defaul
 | `mcp`, `mcp:<name>` | tools of the configured MCP servers (section 9.2) | v0.1 |
 | `help` | `tool_help`; enabled automatically, not configurable | v0.1 |
 | `knowledge` | `knowledge_search`, `knowledge_sources` (9.4) | v0.1, off by default: add it to `TOOLSETS` or to a gateway's list, and set `RAG_ENABLED` |
+| `library` | `library_search`, `library_get`, `library_save` (14.2) | Never available to an open gateway; in the default `TOOLSETS` of a new installation |
 | `todo`, `clarify` | agent work list, multiple-choice questions | roadmap |
 | `cron` | `cronjob`: create, list, update, pause, resume, run, remove (9.5) | v0.2, off by default |
 | `agents` | `delegate`, `delegate_many` (sub-agents, 9.6) | v0.2, off by default |
@@ -821,6 +828,7 @@ Text/background contrast stays at 4.5:1 or better in both themes; state is never
 | Memory | `MEMORY.md` and `USER.md` as a list of entries with a usage bar (for example 1,840 / 2,200), edit and remove an entry; a graph of the names written between double brackets, with the entries of the clicked name | `GET|POST|PUT|DELETE /api/memory/{target}` (delete takes the exact entry as `entry`), `GET /api/memory/graph/view` |
 | Skills | List with name and description, Markdown preview, body editing, deletion | `GET/PUT/DELETE /api/skills/{name}` |
 | Knowledge | Collections and documents with state, upload, add URL, scan folder, re-index, delete; a test search that shows the dense and keyword rank of each hit; the embedding model, its dimension and the provider that receives the text (9.4) | `GET/POST /api/rag/collections`, `PUT/DELETE /api/rag/collections/{name}`, `GET/POST /api/rag/documents`, `POST /api/rag/documents/url`, `DELETE /api/rag/documents/{id}`, `POST /api/rag/scan`, `POST /api/rag/reindex`, `POST /api/rag/search`, `GET /api/rag/status` |
+| Library | Saved items with search, tags and source; open to read, copy, edit, regenerate (a draft to accept or discard), restore the previous text, delete; the toolset switches | `GET|POST /api/library`, `GET|PUT|DELETE /api/library/{id}`, `POST /api/library/{id}/restore`, `POST /api/library/{id}/regenerate` (returns `draft`, saves nothing). The chat and the Agents page add *Save to library* |
 | Tools | Active toolsets per gateway as read-only switches, with call counts | `GET /api/tools` (with call counts since the server started) |
 | MCP | Servers with state (connected, error), detected protocol revision, tool count, latency and a "TLS not verified" badge; add, edit, enable, delete and connection test; reload without restart | `GET/PUT/DELETE /api/mcp/servers/{name}`, `POST /api/mcp/servers/{name}/test`, `POST /api/mcp/reload` |
 | Journey | Timeline of what the agent learned, the `pending_writes` queue with approve/reject, undo an entry | `GET /api/journal`, `POST /api/journal/{id}/undo`, `GET /api/pending`, `POST /api/pending/{id}/approve\|reject` |
@@ -1024,6 +1032,17 @@ Acceptance criteria when implemented:
 
 - A sub-agent defined with its own route, skills and toolsets completes a delegated task, appears as a child session, and its tokens are counted separately; a Telegram user on an open bot cannot reach MCP servers or the terminal through a sub-agent; `delegate` respects iteration, timeout and token limits, runs `delegate_many` in parallel up to the cap and refuses recursion.
 - For a newly added MCP server, Generate produces a draft from its tools and the admin's hint, Evaluate reports a score on at least 6 generated test cases without running any tool, and the accepted text is saved with that score; inputs never contain secrets or tool outputs, and automatic refinement stops after 3 rounds and keeps the best score.
+
+### 14.2 Library
+
+Answers and results the user chose to keep, read back by chat and agents when a request matches.
+
+- **Storage.** Table `library` (migration 13): unique case-insensitive `title`, Markdown `content`, the `prompt` that produced it, comma-separated `tags`, `source` (`manual`, `chat`, `agent`) and `source_ref` (session), `previous` (the text before the last change, one level) and timestamps; an FTS5 index (`unicode61`, accents folded) over title, content and tags with title weighted highest (bm25 8:1:4).
+- **Limits.** `LIBRARY_ITEM_CHARS`, `LIBRARY_MAX_ITEMS`; title one line up to 120 characters, request up to 4,000, up to 8 tags of letters, digits and `-`. Rewriting an existing title needs no room.
+- **Reading.** Toolset `library`: `library_search` returns id, title, tags and a snippet; `library_get` returns the whole text (by id or title). The system prompt lists the titles of the latest `LIBRARY_PROMPT_ITEMS` items (`#id title [tags]`), so the model knows what exists and reads the match instead of writing again; prompts are rebuilt after every change. Results are untrusted data like any tool output. An open gateway never has the toolset.
+- **Saving.** From the dashboard (chat and Agents buttons, the Library page) the admin's save is applied as is; the same title answers 409 unless `replace` is sent (the old text is kept for one undo). The model's `library_save` is scanned (a refusal is journaled as `blocked`), queued with `WRITE_APPROVAL=all` (kind `library`, scanned again on approval) and journaled; it saves only when the user asks. Sub-agents mark their saves as source `agent`.
+- **Regenerate.** `POST /api/library/{id}/regenerate` runs the stored request through the normal agent turn in a throw-away session (source `library`, which uses the web gateway's route and toolsets; the session is deleted afterwards), with a note that it is a rewrite and the item itself must not be read. It returns a draft; nothing is saved until the admin sends it as the new content (`PUT`), which keeps the old text for *Restore previous*. Limited by `AGENT_TIMEOUT`; an item without a request answers 422.
+- **Not memory, not knowledge.** Memory is a few facts sent with every request; the knowledge base is documents searched by passage; the library holds whole texts and costs prompt space only for the titles.
 
 ## 15. Decisions
 

@@ -49,7 +49,7 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 ### tools
 | Setting | Default | Meaning |
 |---|---|---|
-| `TOOLSETS` | memory, search, skills, web, file | The toolsets every gateway has unless it has its own list. |
+| `TOOLSETS` | memory, search, skills, web, file, library | The toolsets every gateway has unless it has its own list. |
 | `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB` | empty (inherit) | A gateway's own list. The switches on [Tools](#/guide?s=tools) and [MCP](#/guide?s=mcp) edit these for you. |
 | `TOOLSETS_CRON` | search, web, skills | Toolsets for scheduled tasks; add more only for tasks you trust. |
 | `ENABLE_TERMINAL` | off | Shortcut that adds `terminal` (shell commands). |
@@ -90,6 +90,13 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 | `MCP_STDIO_COMMANDS` | empty | Program names the dashboard may start as MCP servers. Empty: that feature is off. |
 | `MCP_OAUTH_CLIENT_ID` | empty | Client id registered by hand for OAuth sign-in. |
 | `MCP_OAUTH_PUBLIC_URL` | empty | Public https address of AIFRED, so it can serve its client metadata document. |
+
+### library
+| Setting | Default | Meaning |
+|---|---|---|
+| `LIBRARY_ITEM_CHARS` | 20000 | Largest item the [library](#/guide?s=library) accepts, in characters. |
+| `LIBRARY_MAX_ITEMS` | 500 | Most items the library can hold. |
+| `LIBRARY_PROMPT_ITEMS` | 30 | Latest titles listed in the system prompt (0: none; the assistant can still search). |
 
 ### knowledge
 | Setting | Default | Meaning |

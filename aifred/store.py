@@ -20,6 +20,7 @@ from typing import Any
 
 from aifred.store_agents import AgentStoreMixin
 from aifred.store_instructions import InstructionStoreMixin
+from aifred.store_library import LibraryStoreMixin
 from aifred.store_llm import LLMStoreMixin
 from aifred.store_mcp import McpStoreMixin
 from aifred.store_rag import RagStoreMixin
@@ -452,6 +453,35 @@ _MIGRATIONS: list[str] = [
     """
     ALTER TABLE mcp_servers ADD COLUMN oauth INTEGER NOT NULL DEFAULT 0;
     """,
+    # 13: the library, saved answers and results with full-text search
+    """
+    CREATE TABLE library (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        content TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual',
+        source_ref TEXT NOT NULL DEFAULT '',
+        previous TEXT,
+        created REAL NOT NULL,
+        updated REAL NOT NULL
+    );
+    CREATE VIRTUAL TABLE library_fts USING fts5(
+        title, content, tags, content='library', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER library_ai AFTER INSERT ON library BEGIN
+        INSERT INTO library_fts(rowid, title, content, tags) VALUES (new.id, new.title, new.content, new.tags);
+    END;
+    CREATE TRIGGER library_ad AFTER DELETE ON library BEGIN
+        INSERT INTO library_fts(library_fts, rowid, title, content, tags) VALUES ('delete', old.id, old.title, old.content, old.tags);
+    END;
+    CREATE TRIGGER library_au AFTER UPDATE OF title, content, tags ON library BEGIN
+        INSERT INTO library_fts(library_fts, rowid, title, content, tags) VALUES ('delete', old.id, old.title, old.content, old.tags);
+        INSERT INTO library_fts(rowid, title, content, tags) VALUES (new.id, new.title, new.content, new.tags);
+    END;
+    """,
 ]
 
 
@@ -462,7 +492,7 @@ def _like_prefix(prefix: str | None) -> str:
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, SchedulerStoreMixin, AgentStoreMixin):
+class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, SchedulerStoreMixin, AgentStoreMixin, LibraryStoreMixin):
     """Thread-safe access to the AIFRED database.
 
     Args:

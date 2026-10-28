@@ -49,7 +49,7 @@ def test_schema_is_clean_and_strict(services: Services) -> None:
 def test_default_toolsets(services: Services) -> None:
     assert names(services) == {
         "memory", "session_search", "skill_view", "skill_save", "web_fetch",
-        "file_list", "file_read", "file_write",
+        "file_list", "file_read", "file_write", "library_search", "library_get", "library_save",
     }  # no terminal, no web_search without SEARXNG_URL
 
 

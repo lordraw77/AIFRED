@@ -1,17 +1,27 @@
 // Chat: streaming conversation over POST /api/chat (SSE of JSON events), with a list of web conversations.
 import { ago, attempt, clear, del, empty, get, h, icon, number, state, store, toast, uuid } from "../core.js";
 import { renderMarkdown } from "../md.js";
+import { saveButton } from "../libsave.js";
 
 const SESSION_KEY = "chat.session";
 const RESULT_LIMIT = 6000;   // how much of a tool result the chat keeps; sub-agent answers are long
 
 function newSessionId() { return `web:${uuid()}`; }
 
-function chip(name, args, result) {
+function taskOf(raw) {
+  try { return String(JSON.parse(raw).task || ""); } catch (e) { return ""; }
+}
+
+function chip(name, args, result, rawArgs = "", sessionId = "") {
   const caret = h("span", { class: "caret", "aria-hidden": "true" }, "▸");
   const line = h("span", { class: "chip", role: "button", tabindex: "0", "aria-expanded": "false" }, caret, ` ${name}(${args})`);
   const out = h("div", { class: "chip-result", hidden: true });
-  const fill = (text) => { clear(out); out.append(renderMarkdown(String(text || "").slice(0, RESULT_LIMIT), { links: true, breaks: true })); };
+  let last = "";
+  const fill = (text) => {
+    last = String(text || "");
+    clear(out); out.append(renderMarkdown(last.slice(0, RESULT_LIMIT), { links: true, breaks: true }));
+    if (name.startsWith("delegate") && last && last !== "…") out.append(h("div", { class: "msg-actions" }, saveButton(() => ({ content: last, prompt: taskOf(rawArgs), source: "agent", sourceRef: sessionId }))));
+  };
   fill(result);
   const toggle = () => {
     out.hidden = !out.hidden;
@@ -30,15 +40,16 @@ function shortArgs(raw) {
   } catch (e) { return String(raw).slice(0, 100); }
 }
 
-function renderStored(messages) {
+function renderStored(messages, sessionId) {
   const nodes = [];
   const pending = new Map();
+  let asked = "";
   for (const m of messages) {
-    if (m.role === "user") nodes.push(message("user", m.content));
+    if (m.role === "user") { asked = m.content || ""; nodes.push(message("user", m.content)); }
     else if (m.role === "assistant") {
-      if (m.content) nodes.push(message("assistant", m.content));
+      if (m.content) nodes.push(message("assistant", m.content, { prompt: asked, sessionId }));
       for (const call of m.tool_calls || []) {
-        const c = chip(call.function.name, shortArgs(call.function.arguments), "");
+        const c = chip(call.function.name, shortArgs(call.function.arguments), "", call.function.arguments, sessionId);
         pending.set(call.id, c);
         nodes.push(c.wrap);
       }
@@ -58,10 +69,17 @@ function setBody(body, text, markdown) {
   body.classList.toggle("rich", Boolean(markdown && text));
 }
 
-function message(role, text) {
+/** Under an answer: keep it in the library together with the request that produced it. */
+function saveRow(getText, prompt, sessionId) {
+  return h("div", { class: "msg-actions" }, saveButton(() => ({ content: getText(), prompt, source: "chat", sourceRef: sessionId })));
+}
+
+function message(role, text, keep = null) {
   const body = h("div", { class: "body" });
   setBody(body, text, role === "assistant");
-  return h("div", { class: `msg ${role}` }, h("div", { class: "who" }, role === "user" ? "You" : role === "error" ? "Error" : "AIFRED"), body);
+  const node = h("div", { class: `msg ${role}` }, h("div", { class: "who" }, role === "user" ? "You" : role === "error" ? "Error" : "AIFRED"), body);
+  if (role === "assistant" && text && keep) node.append(saveRow(() => text, keep.prompt, keep.sessionId));
+  return node;
 }
 
 async function* events(response) {
@@ -104,7 +122,7 @@ export default {
       clear(log);
       const rows = await attempt(() => get(`/api/sessions/${encodeURIComponent(id)}/messages`)) || [];
       if (!rows.length) log.append(empty("This conversation is empty. Say something."));
-      else log.append(...renderStored(rows));
+      else log.append(...renderStored(rows, id));
       scroll(); refreshList();
     };
     const remove = async (id) => {
@@ -167,7 +185,7 @@ export default {
           if (ev.type === "token") { raw += ev.text; show(); }
           else if (ev.type === "reset") { raw = ""; show(); }
           else if (ev.type === "tool_call") {
-            const c = chip(ev.name, shortArgs(ev.arguments), "…");
+            const c = chip(ev.name, shortArgs(ev.arguments), "…", ev.arguments, sessionId);
             tools.set(ev.name, c);
             answer.before(c.wrap);
           } else if (ev.type === "tool_result") {
@@ -189,6 +207,7 @@ export default {
           }
           scroll();
         }
+        if (raw && !answer.classList.contains("error")) answer.append(saveRow(() => raw, text, sessionId));
         if (usage && usage.usage) {
           const u = usage.usage;
           answer.append(h("div", { class: "usage-line" }, `${usage.model || ""} · ${number((u.prompt_tokens || 0) + (u.completion_tokens || 0))} tokens`));

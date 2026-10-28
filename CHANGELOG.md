@@ -4,6 +4,9 @@ All notable changes to AIFRED. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Added
+- **Library.** Save the output of a chat or the result of an agent (*Save to library* under each answer, under agent results and on the Agents page) with a title and tags. When you ask for it later, chat and agents search the library (`library_search`, `library_get`) and give you the saved text instead of writing it again; the system prompt lists the latest titles. A Library page lists, searches, edits, copies and deletes items, and *Regenerate* asks again with the stored request and shows a draft you accept (the old text can be restored) or discard. The model saves with `library_save` only when asked; it is scanned and follows `WRITE_APPROVAL=all`. New toolset `library` (in the default list of new installations; add it to the gateways you want on the Library page), settings `LIBRARY_ITEM_CHARS`, `LIBRARY_MAX_ITEMS`, `LIBRARY_PROMPT_ITEMS`, API `/api/library`, database migration 13, and a Library section in the guide.
+
 ## [0.5.0] - 2026-10-28
 
 ### Added

@@ -97,7 +97,7 @@ code, .mono { font-family: var(--font-mono); font-size: 13px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .label { font: 11px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .hint { font-size: 12px; color: var(--muted); }
-input[type="text"], input[type="password"], input[type="number"], input[type="url"], input[type="datetime-local"], select, textarea {
+input[type="text"], input[type="search"], input[type="password"], input[type="number"], input[type="url"], input[type="datetime-local"], select, textarea {
   width: 100%; min-width: 0; padding: 7px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 1px; font: 13px/1.4 var(--font-mono); }
 textarea { resize: vertical; min-height: 64px; }
 input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -231,7 +231,7 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .switch.on { background: var(--ok); border-color: var(--ok); }
 .pad-t { margin-top: 12px; }
 .grow { flex: 1; }
-.row > input[type="text"], .row > input[type="url"], .row > input[type="password"], .row > input[type="number"], .row > select, .row > textarea { width: auto; flex: 1 1 180px; }
+.row > input[type="text"], .row > input[type="search"], .row > input[type="url"], .row > input[type="password"], .row > input[type="number"], .row > select, .row > textarea { width: auto; flex: 1 1 180px; }
 .row > select { flex-basis: 160px; }
 .content > .row { margin-bottom: 16px; }
 .over { color: var(--warn); }
@@ -271,3 +271,14 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .g-legend { gap: 14px; font-size: 12px; }
 .dot { display: inline-block; font-style: normal; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
 .g-entries { margin: 8px 0 0; padding-left: 18px; }
+
+/* Library */
+.lib-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; padding: 6px 0; background: none; border: 0; text-align: left; cursor: pointer; }
+.lib-title { font-family: var(--font-display); font-weight: 600; flex: 1 1 14em; }
+.lib-preview { padding-bottom: 6px; }
+.lib-detail { padding: 6px 0 10px; display: grid; gap: 10px; }
+.lib-body, .draft .rich { border-left: 2px solid var(--line); padding-left: 12px; }
+.draft { border: 1px solid var(--accent); padding: 10px; display: grid; gap: 8px; }
+.save-form { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.save-form .row > input { flex: 1 1 12em; }
+.msg-actions { margin-top: 6px; }

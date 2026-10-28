@@ -1,4 +1,5 @@
 // Agents: named sub-agents the main agent can hand tasks to, each with its own role, model route, toolsets and limits.
+import { saveButton } from "../libsave.js";
 import { toolsetSwitches } from "../toolsets.js";
 import { assistButtons } from "../assist.js";
 import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
@@ -52,7 +53,7 @@ export default {
         clear(out); out.append(skeleton(2));
         const r = await attempt(() => post(`/api/agents/${encodeURIComponent(a.name)}/run`, { task: task.value }));
         clear(out);
-        if (r) out.append(r.status === "ok" ? h("div", { class: "pre" }, r.output) : h("div", { class: "notice err" }, r.error), h("div", { class: "hint" }, `${r.tokens || 0} tokens${r.model ? ` · ${r.model}` : ""} · session ${r.session_id}`));
+        if (r) out.append(r.status === "ok" ? h("div", { class: "pre" }, r.output) : h("div", { class: "notice err" }, r.error), r.status === "ok" && r.output ? saveButton(() => ({ content: r.output, prompt: task.value, source: "agent", sourceRef: r.session_id })) : null, h("div", { class: "hint" }, `${r.tokens || 0} tokens${r.model ? ` · ${r.model}` : ""} · session ${r.session_id}`));
       });
       into.hidden = false;
       into.append(task, h("div", { class: "row" }, run), out);
@@ -69,7 +70,8 @@ export default {
           h("div", { class: "item-head" }, badge(r.status, STATUS[r.status] || ""), h("span", { class: "muted" }, ago(r.started)), r.tokens ? badge(`${r.tokens} tokens`) : null, h("span", { class: "mono muted" }, r.session_id)),
           h("div", { class: "hint" }, `task: ${r.task.slice(0, 300)}`),
           r.error ? h("div", { class: "notice err" }, r.error) : null,
-          r.output ? h("div", { class: "pre" }, r.output) : null));
+          r.output ? h("div", { class: "pre" }, r.output) : null,
+          r.output && r.status === "ok" ? saveButton(() => ({ content: r.output, prompt: r.task, source: "agent", sourceRef: r.session_id })) : null));
       }
     }
 

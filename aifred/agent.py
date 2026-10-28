@@ -238,6 +238,11 @@ class Agent:
                 for c in collections[:15]:
                     detail = f": {c['description'][:120]}" if c["description"] else ""
                     lines.append(f"- {c['name']}{detail} ({c['documents']} documents)")
+        if "library_get" in names:
+            titles = s.library.prompt_index()
+            if titles:
+                lines += ["", "## Library (answers and results the user saved; when a request matches one, read it with library_get and give it as it is)"]
+                lines += [f"- #{t['id']} {t['title']}" + (f" [{', '.join(t['tags'])}]" if t["tags"] else "") for t in titles]
         capabilities = s.instructions.capabilities(ctx)
         if capabilities:
             lines += ["", capabilities]
@@ -254,6 +259,8 @@ class Agent:
         ]
         if "memory" in names:
             lines.append("- Save durable preferences and decisions with the memory tool; not transient task details.")
+        if "library_save" in names:
+            lines.append("- Save to the library only when the user asks to keep an answer; otherwise never.")
         if "skill_save" in names:
             lines.append("- After solving a complex, reusable task, consider saving it as a skill.")
         return _Prompt("\n".join(lines), self._clock(), names)

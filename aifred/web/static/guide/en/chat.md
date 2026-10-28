@@ -10,6 +10,7 @@ The chat is the main way to use AIFRED from the browser. Answers stream in as th
 - **The conversation list**: the web conversations, newest first (up to 50), with the first words of the first message as title and the number of messages. Click one to open it. Move the mouse over a row to show the trash can; pressing it asks *Delete / No*, so a stray click removes nothing. Deleting also removes the sub-agent conversations that conversation started.
 - **The messages**: *You* on top, *AIFRED* below. The assistant's text is formatted: headings, lists, tables, quotes, code, bold and italic, and links that open in a new tab. HTML is never interpreted.
 - **Tool lines** such as `mcp__proxmox__list_vms()`: each time the assistant uses a tool a line appears. Click it to open the result, click again to close it. The marker ▸ means closed, ▾ open.
+- **Save to library** under each answer: keeps it with the request that produced it (see [Library](#/guide?s=library)).
 - **The usage line** under an answer: which model answered and how many tokens the request used.
 - **The box at the bottom**: `Enter` sends, `Shift+Enter` adds a line. Typing `/` starts a command (see [Chat commands and Telegram](#/guide?s=commands)). While an answer is being written the *Send* button becomes *Stop*.
 

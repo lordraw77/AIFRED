@@ -72,7 +72,7 @@ class Settings(BaseSettings):
 
 Kind = Literal["str", "int", "float", "bool", "enum", "json", "list", "int_list", "url", "secret"]
 
-_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|terminal|cron|agents|mcp|mcp:[a-z0-9_]{1,24})$")
+_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|library|terminal|cron|agents|mcp|mcp:[a-z0-9_]{1,24})$")
 _URL_RE = re.compile(r"^https?://[^\s/]+(/\S*)?$")
 
 
@@ -145,7 +145,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("TELEGRAM_TOKEN", "secret", None, "telegram", "Bot token; enables the Telegram gateway"),
         SettingSpec("TELEGRAM_ALLOWED_IDS", "int_list", [], "telegram", "Allowlist of numeric user ids (empty: open bot)"),
         SettingSpec("TELEGRAM_API_BASE", "url", "https://api.telegram.org", "telegram", "Telegram Bot API base URL"),
-        _toolsets("TOOLSETS", ["memory", "search", "skills", "web", "file"], "Enabled toolsets"),
+        _toolsets("TOOLSETS", ["memory", "search", "skills", "web", "file", "library"], "Enabled toolsets"),
         _toolsets("TOOLSETS_CLI", None, "Toolsets for the CLI (empty: inherit)"),
         _toolsets("TOOLSETS_TELEGRAM", None, "Toolsets for Telegram (empty: inherit)"),
         _toolsets("TOOLSETS_API", None, "Toolsets for the API (empty: inherit)"),
@@ -180,6 +180,9 @@ SETTING_SPECS: dict[str, SettingSpec] = {
             "INSTRUCTIONS_BUDGET", "int", 3000, "agent", "Maximum characters of the Capabilities prompt section",
             minimum=100, maximum=50000,
         ),
+        SettingSpec("LIBRARY_ITEM_CHARS", "int", 20_000, "library", "Largest item (characters) the library accepts", minimum=500, maximum=200_000),
+        SettingSpec("LIBRARY_MAX_ITEMS", "int", 500, "library", "Most items the library can hold", minimum=1, maximum=100_000),
+        SettingSpec("LIBRARY_PROMPT_ITEMS", "int", 30, "library", "How many of the latest titles the system prompt lists so the assistant knows what the library holds (0: none; it can still search)", minimum=0, maximum=200),
         SettingSpec("RAG_ENABLED", "bool", False, "knowledge", "Turn the local knowledge base on (ingestion, API, tools)"),
         SettingSpec("RAG_EMBED_PROVIDER", "str", None, "knowledge", "Provider slug of the embedding model (empty: keyword search only)", nullable=True),
         SettingSpec("RAG_EMBED_MODEL", "str", None, "knowledge", "Embedding model; overridable per collection", nullable=True),

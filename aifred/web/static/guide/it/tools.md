@@ -12,7 +12,7 @@ Quali strumenti l'assistente può usare su ogni gateway, quante volte sono stati
 - La colonna **Calls** conta gli usi dall'avvio del server.
 
 ### I toolset
-`memory` (appunti e profilo), `skills`, `search` (cerca nelle conversazioni passate) e `web` (ricerca sul web e lettura di pagine), `file` (leggere e scrivere nella cartella di lavoro), `terminal` (comandi di shell; spento di default e da usare con cautela), `knowledge` (i tuoi documenti), `cron` (attività pianificate), `agents` (delegare ai sub-agenti) e un `mcp:<server>` per ogni server MCP.
+`memory` (appunti e profilo), `skills`, `search` (cerca nelle conversazioni passate) e `web` (ricerca sul web e lettura di pagine), `file` (leggere e scrivere nella cartella di lavoro), `terminal` (comandi di shell; spento di default e da usare con cautela), `knowledge` (i tuoi documenti), `library` (le risposte che hai salvato: `library_search`, `library_get`, `library_save`), `cron` (attività pianificate), `agents` (delegare ai sub-agenti) e un `mcp:<server>` per ogni server MCP.
 
 ## Instructions: what is it for?
 

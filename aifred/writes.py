@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from aifred.instructions import InstructionError
+from aifred.library import LibraryError
 from aifred.memory import MemoryError_
 from aifred.scanner import scan
 from aifred.scheduler import SchedulerError
@@ -89,6 +90,23 @@ def apply_skill(services: Services, payload: dict[str, Any], session_id: str | N
     return f"Skill {skill.name!r} {'updated' if previous else 'created'}."
 
 
+def apply_library(services: Services, payload: dict[str, Any], session_id: str | None) -> str:
+    """Save an item in the library (rewriting the one with the same title when ``replace`` is set) and journal it.
+
+    Raises:
+        WriteError: If the item is refused (invalid, full, or the title exists and nothing may be replaced).
+    """
+    try:
+        item, created = services.library.save(
+            payload["title"], payload["content"], prompt=payload.get("prompt") or "", tags=payload.get("tags"),
+            source=payload.get("source") or "chat", source_ref=session_id or "", replace=bool(payload.get("replace")),
+        )
+    except LibraryError as exc:
+        raise WriteError(str(exc)) from None
+    services.store.journal_add("library", "create" if created else "update", item["title"][:300], session_id, "applied", {"id": item["id"]})
+    return f"{'Saved to' if created else 'Rewrote an item of'} the library as {item['title']!r} (#{item['id']})."
+
+
 def apply_schedule(services: Services, payload: dict[str, Any]) -> str:
     """Create, change or remove a scheduled task the admin approved (the prompt is screened again).
 
@@ -133,6 +151,9 @@ def apply_pending(services: Services, write_id: int) -> str:
     elif kind == "skill":
         screen(services, "skill", "save", f"{payload['description']}\n{payload['body']}", payload["name"], session_id)
         message = apply_skill(services, payload, session_id)
+    elif kind == "library":
+        screen(services, "library", "save", f"{payload['title']}\n{payload['content']}", payload["title"], session_id)
+        message = apply_library(services, payload, session_id)
     elif kind == "instruction":
         screen(services, "instruction", "propose", payload["text"], payload["scope"], session_id)
         try:
