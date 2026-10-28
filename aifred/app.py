@@ -209,7 +209,7 @@ class Services:
         providers = ProviderService(store, vault)
         from aifred.tools.builtin import registry
 
-        memory = Memory(settings.data_dir)
+        memory = Memory(settings.data_dir, lambda target: int(config.get("MEMORY_LIMIT" if target == "memory" else "USER_LIMIT")))
         return cls(
             settings, store, vault, config, AuthService(store), providers,
             LLMRouter(store, vault, config, providers), memory, SkillStore(settings.data_dir, memory), WebTools(), registry.fork(),

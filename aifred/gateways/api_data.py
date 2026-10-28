@@ -44,6 +44,14 @@ class EntryIn(BaseModel):
     match: str | None = None
 
 
+@router.get("/api/memory/graph/view")
+def memory_graph(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """The memory entries as a graph: names in double brackets are nodes, shared entries are edges."""
+    from aifred.memory_graph import build
+
+    return build({t: services.memory.snapshot(t).entries for t in ("memory", "user")})
+
+
 @router.get("/api/memory/{target}")
 def get_memory(target: str, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
     """Entries of ``memory`` or ``user`` with the space used."""

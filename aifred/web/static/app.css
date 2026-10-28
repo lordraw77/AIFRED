@@ -257,3 +257,17 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .guide figure.shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); }
 .guide figure.shot figcaption { font: 12px var(--font-mono); color: var(--muted); margin-top: 4px; }
 .guide-nav { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; gap: 8px; }
+
+/* Memory graph */
+.graph { width: 100%; height: auto; max-height: 520px; background: var(--surface-2); border: 1px solid var(--line); }
+.g-edge { stroke: var(--line); }
+.g-node { cursor: pointer; outline: none; }
+.g-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.g-node.user circle, .dot.user { fill: var(--warn); background: var(--warn); }
+.g-node.both circle, .dot.both { fill: var(--ok); background: var(--ok); }
+.dot.memory { background: var(--accent); }
+.g-node text { fill: var(--text); font: 11px var(--font-mono); pointer-events: none; }
+.g-node:hover circle, .g-node:focus-visible circle, .g-node.on circle { stroke: var(--text); }
+.g-legend { gap: 14px; font-size: 12px; }
+.dot { display: inline-block; font-style: normal; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.g-entries { margin: 8px 0 0; padding-left: 18px; }

@@ -154,6 +154,33 @@ async def test_input_is_capped(services: Services, llm_ready: FakeLLM) -> None:
     assert len(prompt) < 500 * 4 + 400 and "[earlier part left out]" in prompt and "message number 059" in prompt and "message number 000" not in prompt
 
 
+async def test_the_notes_come_with_their_size_and_the_prompt_asks_for_names(services: Services, llm_ready: FakeLLM) -> None:
+    services.config.update({"MEMORY_LIMIT": 400})
+    services.memory.add("memory", "[[Marco]] works at [[Acme]]")
+    services.store.ensure_session(SESSION, "cli", "t")
+    services.store.add_message(SESSION, "user", "hello there")
+    llm_ready.queue(Text("Nothing to save."))
+    await services.review.run(SESSION, force=True)
+    sent = bodies(llm_ready)[-1]["messages"]
+    assert "Notes already saved (memory, 27 / 400 characters, 7% full)" in sent[1]["content"]
+    assert "[[Marco]] works at [[Acme]]" in sent[1]["content"]
+    assert "double brackets" in sent[0]["content"] and "85% full" in sent[0]["content"]
+
+
+async def test_a_long_stretch_shortens_the_assistant_before_losing_what_the_user_said(services: Services, llm_ready: FakeLLM) -> None:
+    services.config.update({"REVIEW_MAX_INPUT_TOKENS": 3500})
+    services.store.ensure_session(SESSION, "cli", "t")
+    for i in range(12):
+        services.store.add_message(SESSION, "user", f"my fact number {i:02d}")
+        services.store.add_message(SESSION, "assistant", "long answer " * 150)
+    llm_ready.queue(Text("Nothing to save."))
+    await services.review.run(SESSION, force=True)
+    prompt = bodies(llm_ready)[-1]["messages"][1]["content"]
+    assert "[earlier part left out]" not in prompt
+    assert all(f"my fact number {i:02d}" in prompt for i in range(12))
+    assert "long answer " * 150 not in prompt and "[...]" in prompt
+
+
 async def test_writes_wait_for_approval_when_asked(services: Services, llm_ready: FakeLLM) -> None:
     services.config.update({"WRITE_APPROVAL": "all"})
     seed(services)

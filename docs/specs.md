@@ -108,6 +108,8 @@ Image-level settings, not user configuration: `AIFRED_DATA_DIR` (default `/data`
 | `COOLDOWN_QUOTA` | `3600` | Default cooldown (s) after credit or quota exhaustion |
 | `MAX_ITERATIONS` | `12` | Maximum tool rounds per request |
 | `HISTORY_LIMIT` | `40` | History messages sent to the model |
+| `MEMORY_LIMIT` | `2200` | Characters `MEMORY.md` may use (300 to 50,000) |
+| `USER_LIMIT` | `1375` | Characters `USER.md` may use (300 to 50,000) |
 | `ASSIST_EVALUATIONS_PER_HOUR` | `10` | Instruction evaluations the dashboard may run an hour |
 | `COMPRESS_ENABLED` | `true` | Summarise the older part of a long conversation |
 | `COMPRESS_TRIGGER_TOKENS` | `12000` | Estimated history size (four characters per token) that triggers a summary |
@@ -355,12 +357,14 @@ Three tabs: **Providers** (add from a preset, enter keys, base URL and TLS optio
 
 ## 7. Curated memory
 
-- Two files in `data/memory/`: `MEMORY.md` (agent notes, **2,200 characters**) and `USER.md` (user profile, **1,375 characters**).
+- Two files in `data/memory/`: `MEMORY.md` (agent notes) and `USER.md` (user profile). The limits are settings: `MEMORY_LIMIT` (default **2,200 characters**) and `USER_LIMIT` (default **1,375**), 300 to 50,000; they apply at once, and a limit lowered under the stored size keeps the entries and refuses new ones.
 - Entries are separated by `\n§\n`.
 - Operations through the `memory` tool: `add`, `replace`, `remove`; `replace` and `remove` identify an entry by a **unique** substring.
 - Going over the limit fails with a clear message, so the model condenses instead of accumulating.
 - Content enters the system prompt as a snapshot; changes become visible in the next session (or after the idle window).
 - What to save: preferences, environment, durable decisions. Not transient task details.
+- **Graph (derived).** Names written between double brackets (`[[Marco]] works at [[Acme]]`) are nodes; two names in one entry are an edge carrying the entry (at most 8 names per entry). Entries without brackets join a name other entries use when they mention it as a whole word. `GET /api/memory/graph/view` returns `nodes`, `edges` and `unlinked`; the Memory page draws it. The files stay the only store: nothing is saved twice.
+- **Extraction.** The review prompt asks for one fact per entry, a subject first, bracketed names reused from the notes, absolute dates, `replace` over near-duplicates and a merge when a file is above 85% full; each file's size is shown to it. When the transcript is over the cost cap, the assistant's answers are shortened to 300 characters before anything older is dropped, so the user's own words are the last thing lost.
 
 ## 8. Skills
 
@@ -814,7 +818,7 @@ Text/background contrast stays at 4.5:1 or better in both themes; state is never
 | --- | --- | --- |
 | Chat | Streaming conversation, session picker, commands `/new` `/refine` `/pending` `/think` | `POST /api/chat` |
 | Sessions | Stats (total, messages, sources, connected platforms), filter by source, Overview with connected platforms and recent sessions, History with full-text search | `GET /api/sessions`, `GET /api/sessions/{id}/messages`, `PUT|DELETE /api/sessions/{id}`, `GET /api/status`, `GET /api/search` |
-| Memory | `MEMORY.md` and `USER.md` as a list of entries with a usage bar (for example 1,840 / 2,200), edit and remove an entry | `GET|POST|PUT|DELETE /api/memory/{target}` (delete takes the exact entry as `entry`) |
+| Memory | `MEMORY.md` and `USER.md` as a list of entries with a usage bar (for example 1,840 / 2,200), edit and remove an entry; a graph of the names written between double brackets, with the entries of the clicked name | `GET|POST|PUT|DELETE /api/memory/{target}` (delete takes the exact entry as `entry`), `GET /api/memory/graph/view` |
 | Skills | List with name and description, Markdown preview, body editing, deletion | `GET/PUT/DELETE /api/skills/{name}` |
 | Knowledge | Collections and documents with state, upload, add URL, scan folder, re-index, delete; a test search that shows the dense and keyword rank of each hit; the embedding model, its dimension and the provider that receives the text (9.4) | `GET/POST /api/rag/collections`, `PUT/DELETE /api/rag/collections/{name}`, `GET/POST /api/rag/documents`, `POST /api/rag/documents/url`, `DELETE /api/rag/documents/{id}`, `POST /api/rag/scan`, `POST /api/rag/reindex`, `POST /api/rag/search`, `GET /api/rag/status` |
 | Tools | Active toolsets per gateway as read-only switches, with call counts | `GET /api/tools` (with call counts since the server started) |

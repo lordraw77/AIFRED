@@ -35,6 +35,8 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 |---|---|---|
 | `MAX_ITERATIONS` | 12 | Massimo di giri di strumenti per richiesta. |
 | `HISTORY_LIMIT` | 40 | Messaggi di cronologia inviati al modello. |
+| `MEMORY_LIMIT` | 2200 | Caratteri che le note dell'assistente (`MEMORY.md`) possono occupare; vanno con ogni richiesta. |
+| `USER_LIMIT` | 1375 | Caratteri che il profilo utente (`USER.md`) può occupare; vanno con ogni richiesta. |
 | `COMPRESS_ENABLED` | on | Riassumere la parte più vecchia di una conversazione lunga. |
 | `COMPRESS_TRIGGER_TOKENS` | 12000 | Dimensione stimata che fa scattare un riassunto. |
 | `COMPRESS_KEEP_MESSAGES` | 8 | Ultimi messaggi tenuti parola per parola. |

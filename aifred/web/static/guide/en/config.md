@@ -35,6 +35,8 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 |---|---|---|
 | `MAX_ITERATIONS` | 12 | Most tool rounds per request. |
 | `HISTORY_LIMIT` | 40 | Messages of history sent to the model. |
+| `MEMORY_LIMIT` | 2200 | Characters the assistant's notes (`MEMORY.md`) may use; sent with every request. |
+| `USER_LIMIT` | 1375 | Characters the user profile (`USER.md`) may use; sent with every request. |
 | `COMPRESS_ENABLED` | on | Summarise the older part of a long conversation. |
 | `COMPRESS_TRIGGER_TOKENS` | 12000 | Estimated size that triggers a summary. |
 | `COMPRESS_KEEP_MESSAGES` | 8 | Latest messages kept word for word. |
