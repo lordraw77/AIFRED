@@ -338,7 +338,7 @@ class Commands:
             if not verb or verb == "list":
                 rows = await asyncio.to_thread(store.schedule_list)
                 if not rows:
-                    return "No scheduled tasks. Add one with /cron add <name> | <schedule> | <prompt>, for example\n/cron add morning | 0 8 * * * | Summarise the news about Python"
+                    return "No scheduled tasks. Add one with /cron add <name> | <schedule> | <prompt>, for example\n/cron add morning | every morning at 8 | Summarise the news about Python"
                 return "\n".join(
                     f"{'on ' if r['enabled'] else 'off'} {r['name']}  [{r['expression']}]  next {sched.describe(r)['next_run_text'] or '-'}  last {r['last_status'] or '-'}"
                     for r in rows
@@ -346,7 +346,7 @@ class Commands:
             if verb == "add":
                 parts = [p.strip() for p in rest.split("|", 2)]
                 if len(parts) != 3 or not all(parts):
-                    return "Usage: /cron add <name> | <schedule> | <prompt>   (schedule: '0 8 * * *', @daily or 'every 30m')"
+                    return "Usage: /cron add <name> | <schedule> | <prompt>   (schedule: 'every morning at 8', 'ogni lunedì alle 9', '0 8 * * *', @daily or 'every 30m')"
                 allowed = self._s.config.get("TELEGRAM_ALLOWED_IDS")
                 chat = chat_of_session(ctx.session_id) if ctx.source == "telegram" else (allowed[0] if allowed else None)
                 row = await asyncio.to_thread(sched.create, parts[0], parts[1], parts[2], chat if chat in allowed else None)

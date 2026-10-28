@@ -1,13 +1,17 @@
-// A minimal Markdown renderer for skill previews and chat. It builds DOM nodes and accepts no HTML:
-// every piece of text goes through text nodes. Links are only rendered when asked for (chat), only for
-// http(s) addresses, and always open in a new tab without a referrer.
+// A minimal Markdown renderer for skill previews, chat and the guide. It builds DOM nodes and accepts no HTML:
+// every piece of text goes through text nodes. Links are only rendered when asked for (chat, guide), only for
+// http(s) addresses (and #/ pages of the dashboard), and always open in a new tab without a referrer.
+// Images are the guide's own screenshots only.
 import { h } from "./core.js";
 
-const TOKEN = /(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|https?:\/\/[^\s)<]+)/g;
+const TOKEN = /(`[^`]+`|\[[^\]\n]+\]\((?:https?:\/\/|#\/)[^\s)]+\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|https?:\/\/[^\s)<]+)/g;
 
 function link(label, url) {
+  if (url.startsWith("#/")) return h("a", { href: url }, label);          // a page of the dashboard itself
   return h("a", { href: url, target: "_blank", rel: "noopener noreferrer nofollow" }, label);
 }
+
+const IMAGE = /^!\[([^\]]*)\]\((\/static\/guide\/img\/[A-Za-z0-9._-]+\.png)\)\s*$/;
 
 function inline(text, links) {
   const out = [];
@@ -58,6 +62,12 @@ export function renderMarkdown(source, { links = false, breaks = false } = {}) {
       while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
       i++;
       root.append(h("pre", {}, h("code", {}, code.join("\n"))));
+      continue;
+    }
+    const image = links && line.match(IMAGE);          // only the guide's own pictures, and only where links are allowed
+    if (image) {
+      root.append(h("figure", { class: "shot" }, h("a", { href: image[2], target: "_blank", rel: "noopener" }, h("img", { src: image[2], alt: image[1], loading: "lazy" })), h("figcaption", {}, image[1])));
+      i++;
       continue;
     }
     if (RULE.test(line)) { root.append(h("hr", {})); i++; continue; }

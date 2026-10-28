@@ -487,7 +487,7 @@ class CronArgs(BaseModel):
     name: str | None = Field(default=None, description="Task name: lowercase letters, digits, '-' and '_' (all actions but list)")
     schedule: str | None = Field(
         default=None,
-        description="When to run: five cron fields ('0 8 * * 1-5'), an alias (@daily, @hourly, @weekly) or 'every 30m' / 'every 2h' (create, update)",
+        description="When to run: a plain sentence such as 'every morning at 6' or 'every monday at 9' (the user's words are fine), five cron fields ('0 8 * * 1-5'), an alias (@daily, @hourly, @weekly) or 'every 30m' / 'every 2h' (create, update)",
     )
     prompt: str | None = Field(default=None, description="What to do each time, written as a complete instruction (create, update)")
     deliver: bool = Field(default=True, description="Send each result to the user on Telegram (create)")

@@ -45,6 +45,7 @@ const ICONS = {
   keys: "M14 8a4 4 0 1 1-1 2.6L4 20v-3h3v-3h3l1.4-1.4",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 4-6 8-6s8 2 8 6",
   system: "M4 5h16v10H4zM9 19h6M12 15v4",
+  guide: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6",
   menu: "M4 6h16M4 12h16M4 18h16",
   collapse: "M15 5l-7 7 7 7",
   filter: "M4 5h16l-6 8v6l-4-2v-4z",

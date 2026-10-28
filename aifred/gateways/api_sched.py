@@ -48,9 +48,9 @@ async def list_schedules(_: AdminDep, services: ServicesDep) -> dict[str, Any]:
 
 @router.post("/api/schedules/preview")
 async def preview(body: PreviewIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
-    """The next run times of an expression."""
+    """The next run times of an expression, and how it was read (a sentence such as 'every morning at 6' becomes cron)."""
     try:
-        return {"runs": await asyncio.to_thread(services.scheduler.preview, body.expression, 5)}
+        return {"runs": await asyncio.to_thread(services.scheduler.preview, body.expression, 5), **services.scheduler.interpret(body.expression)}
     except SchedulerError as exc:
         raise _error(exc) from None
 
