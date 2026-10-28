@@ -62,7 +62,7 @@ export default {
     function form(t, data) {
       const isNew = !t;
       const name = h("input", { type: "text", value: t ? t.name : "", readonly: !isNew || null, placeholder: "morning-news", pattern: "[a-z0-9][a-z0-9_\\-]{0,39}", maxlength: "40" });
-      const expression = h("input", { type: "text", value: t ? t.expression : "", placeholder: "0 8 * * 1-5   ·   @daily   ·   every 30m" });
+      const expression = h("input", { type: "text", value: t ? t.expression : "", placeholder: "every morning at 6   ·   ogni lunedì alle 9   ·   0 8 * * 1-5   ·   every 30m" });
       const prompt = h("textarea", { rows: "4", maxlength: "2000", placeholder: "Search the web for today's news about Python and write five short bullet points." }, t ? t.prompt : "");
       const chat = h("select", {}, h("option", { value: "" }, "Do not deliver (keep the result here)"), ...data.telegram_ids.map((id) => h("option", { value: String(id) }, `Telegram ${id}`)));
       chat.value = t && t.deliver_chat !== null ? String(t.deliver_chat) : (isNew && data.telegram_ids.length ? String(data.telegram_ids[0]) : "");
@@ -74,7 +74,7 @@ export default {
           if (!expression.value.trim()) { preview.textContent = ""; return; }
           try {
             const r = await post("/api/schedules/preview", { expression: expression.value });
-            preview.textContent = `Next: ${r.runs.join("  ·  ")}`;
+            preview.textContent = `${r.source ? `Understood as ${r.interpreted}. ` : ""}Next: ${r.runs.join("  ·  ")}`;
             preview.className = "hint";
           } catch (e) { preview.textContent = e.message; preview.className = "notice err"; }
         }, 300);
@@ -87,7 +87,7 @@ export default {
         if (await attempt(() => put(`/api/schedules/${encodeURIComponent(name.value.trim())}`, values), "Saved")) { editing = null; draw(); }
       });
       return h("div", { class: "item stack" },
-        field("Name", name), field("When", expression, "Five cron fields (minute hour day month weekday), an alias (@hourly, @daily, @weekly) or 'every 30m' / 'every 2h'. Not more often than every " + data.min_interval + " min."), preview,
+        field("Name", name), field("When", expression, "Write it as a sentence in English or Italian (every morning at 6 · ogni lunedì e giovedì alle 9 · every 2 hours · il primo del mese alle 8), as five cron fields (minute hour day month weekday), as an alias (@hourly, @daily, @weekly) or as 'every 30m'. Not more often than every " + data.min_interval + " min."), preview,
         field("What to do", prompt, "Write it as a complete instruction: nobody can answer questions while it runs."), field("Deliver the result to", chat),
         h("div", { class: "row" }, save, button("Cancel", () => { editing = null; draw(); })));
     }

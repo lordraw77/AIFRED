@@ -7,14 +7,18 @@ Accepted forms (all evaluated in one time zone, the server's or ``SCHEDULER_TIME
   week are restricted a day matches if *either* does, as in classic cron.
 * ``@hourly``, ``@daily`` (``@midnight``), ``@weekly``, ``@monthly``, ``@yearly`` (``@annually``).
 * ``every 30m``, ``every 2h``, ``every 1d``: a fixed interval, counted from when the schedule was created or last ran.
+* A plain sentence in Italian or English (``ogni mattina alle 6``, ``every monday at 9``, ``ogni 2 ore``), read by
+  :mod:`aifred.cron_text` and stored as the cron expression it means.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from aifred.cron_text import TextError, to_cron
 
 ALIASES = {
     "@hourly": "0 * * * *", "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@weekly": "0 0 * * 0",
@@ -31,6 +35,10 @@ class CronError(ValueError):
     """The expression is not valid; the message says what is wrong."""
 
 
+class TooOftenError(CronError):
+    """The schedule is valid but runs more often than ``SCHEDULER_MIN_INTERVAL`` allows."""
+
+
 @dataclass(frozen=True)
 class Spec:
     """A parsed schedule.
@@ -45,6 +53,7 @@ class Spec:
         weekdays: Allowed days of the week, 0 = Sunday.
         dom_any: Whether the day-of-month field is ``*``.
         dow_any: Whether the day-of-week field is ``*``.
+        source: The sentence the schedule was written as, when it was not cron (``text`` is then what it was read as).
     """
 
     text: str
@@ -56,6 +65,7 @@ class Spec:
     weekdays: frozenset[int] = frozenset()
     dom_any: bool = True
     dow_any: bool = True
+    source: str = ""
 
 
 def _field(text: str, low: int, high: int, names: dict[str, int] | None, what: str) -> frozenset[int]:
@@ -95,10 +105,10 @@ def _number(text: str, names: dict[str, int] | None, what: str) -> int:
 
 
 def parse(expression: str, min_interval_minutes: int = 5) -> Spec:
-    """Parse a schedule expression.
+    """Parse a schedule: cron fields, an alias, ``every Nm|Nh|Nd`` or a sentence in Italian or English.
 
     Args:
-        expression: Cron fields, an alias or ``every Nm|Nh|Nd``.
+        expression: The schedule as typed.
         min_interval_minutes: Shortest allowed gap between runs (protects budgets and the model).
 
     Raises:
@@ -107,17 +117,32 @@ def parse(expression: str, min_interval_minutes: int = 5) -> Spec:
     text = " ".join(expression.strip().split())
     if not text:
         raise CronError("the schedule is empty")
+    try:
+        return _parse(text, min_interval_minutes)
+    except TooOftenError:
+        raise
+    except CronError:
+        try:
+            sentence = to_cron(text)
+        except TextError as exc:
+            raise CronError(str(exc)) from None
+        if sentence is None:
+            raise
+        return replace(_parse(sentence, min_interval_minutes), source=text)
+
+
+def _parse(text: str, min_interval_minutes: int) -> Spec:
     if (m := _INTERVAL.match(text)):
         seconds = int(m.group(1)) * _UNIT_SECONDS[m.group(2).lower()]
         if seconds < min_interval_minutes * 60:
-            raise CronError(f"a schedule may not run more often than every {min_interval_minutes} minutes")
+            raise TooOftenError(f"a schedule may not run more often than every {min_interval_minutes} minutes")
         if seconds > 366 * 86400:
             raise CronError("an interval cannot be longer than a year")
         return Spec(f"every {m.group(1)}{m.group(2).lower()}", interval=seconds)
     text = ALIASES.get(text.lower(), text)
     fields = text.split(" ")
     if len(fields) != 5:
-        raise CronError("use five fields (minute hour day month weekday), an alias such as @daily, or 'every 30m'")
+        raise CronError("use a sentence such as 'every morning at 6' or 'ogni lunedì alle 9', five cron fields (minute hour day month weekday), an alias such as @daily, or 'every 30m'")
     minutes = _field(fields[0], 0, 59, None, "minute")
     hours = _field(fields[1], 0, 23, None, "hour")
     days = _field(fields[2], 1, 31, None, "day of the month")
@@ -127,7 +152,7 @@ def parse(expression: str, min_interval_minutes: int = 5) -> Spec:
     times = sorted(h * 60 + m for h in hours for m in minutes)
     gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
     if gaps and min(gaps) < min_interval_minutes:
-        raise CronError(f"a schedule may not run more often than every {min_interval_minutes} minutes")
+        raise TooOftenError(f"a schedule may not run more often than every {min_interval_minutes} minutes")
     return spec
 
 

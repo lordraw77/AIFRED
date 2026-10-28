@@ -18,6 +18,7 @@ const PAGES = [
   { id: "keys", label: "API keys", icon: "keys", load: () => import("./pages/admin.js").then((m) => m.keysPage) },
   { id: "account", label: "Account", icon: "account", load: () => import("./pages/admin.js").then((m) => m.accountPage) },
   { id: "system", label: "System", icon: "system", load: () => import("./pages/admin.js").then((m) => m.systemPage) },
+  { id: "guide", label: "Guide", icon: "guide", load: () => import("./pages/guide.js") },
 ];
 
 const root = document.getElementById("app");
@@ -122,10 +123,11 @@ function showShell() {
   const menu = h("button", { class: "btn btn-sm menu-btn", type: "button", "aria-label": "Open the menu", onclick: () => shell.classList.add("drawer") }, icon("menu"));
   const banner = h("div", { class: "banner", role: "alert", hidden: true });
   const content = h("div", { class: "content", id: "content" });
-  const main = h("main", { class: "main" }, h("header", { class: "topbar" }, menu, title, h("span", { class: "spacer" })), banner, content);
+  const help = h("a", { class: "btn btn-sm help-link", href: "#/guide", title: "Open the guide for this page" }, icon("guide"), h("span", {}, "Guide"));
+  const main = h("main", { class: "main" }, h("header", { class: "topbar" }, menu, title, h("span", { class: "spacer" }), help), banner, content);
   shell.append(sidebar, h("div", { class: "scrim", onclick: () => shell.classList.remove("drawer") }), main);
   root.append(shell);
-  shell.ctx = { title, content, banner, nav };
+  shell.ctx = { title, content, banner, nav, help };
 
   const refresh = async () => {
     try {
@@ -149,12 +151,14 @@ async function route() {
   const id = (location.hash.match(/^#\/([a-z]+)/) || [])[1] || "chat";
   const page = PAGES.find((p) => p.id === id) || PAGES[0];
   const token = ++navToken;
-  const { title, content, banner, nav } = shell.ctx;
+  const { title, content, banner, nav, help } = shell.ctx;
   if (cleanup) { try { cleanup(); } catch (e) { /* ignore */ } cleanup = null; }
   for (const link of nav.children) {
     if (link.dataset.page === page.id) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
   }
   title.textContent = page.label;
+  help.hidden = page.id === "guide";
+  help.href = `#/guide?s=${page.id}`;
   document.title = `${page.label} · AIFRED`;
   banner.hidden = true;
   clear(content);

@@ -2,6 +2,15 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [Unreleased]
+
+### Added
+- **Schedules in plain sentences.** The schedule field understands English and Italian: `every morning at 6`, `ogni mattina alle 6`, `dal lunedì al venerdì alle 8:30`, `every monday and thursday at 9am`, `ogni 2 ore`, `il primo del mese alle 8`… The form shows *Understood as 0 6 * * ** and the next runs before you save, and the task is stored as cron. Works in the dashboard, in `/cron add` and for tasks the assistant proposes. Incomplete sentences say what is missing instead of guessing.
+- **A bilingual guide inside the dashboard.** A *Guide* entry in the menu and a *Guide* button on every page open one section per page (19 sections, English and Italian, with 30 screenshots) that explains every control, every setting and every command. The screenshots come from a demo instance (`scripts/guide-screenshots/`) so they can be redone; tests keep the guide honest (every page and every setting is covered, links and pictures exist, the schedule examples really mean what they say).
+
+### Fixed
+- Chat: a reply with one line per command (such as the answer to `/help`) lost its line breaks.
+
 ## [0.4.0] - 2026-10-27
 
 ### Added

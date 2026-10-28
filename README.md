@@ -69,6 +69,7 @@ To try it without OpenBao, `docker run` instructions are in the [Docker Hub over
 
 | | |
 |---|---|
+| [User guide](aifred/web/static/guide/en/start.md) ([italiano](aifred/web/static/guide/it/start.md)) | One bilingual section per dashboard page with screenshots; also under *Guide* in the dashboard |
 | [docs/deploy.md](docs/deploy.md) | Deployment, the published image, backup, recovery, the knowledge base and vision setup |
 | [docs/specs.md](docs/specs.md) | The specification: design, data model, every feature, security, tests |
 | [docs/adr.md](docs/adr.md) | Architecture decision records |

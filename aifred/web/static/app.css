@@ -168,6 +168,7 @@ td.mono, td .mono { font-family: var(--font-mono); font-size: 12px; }
 .msg .who { font: 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 2px; }
 .msg .body { white-space: pre-wrap; word-break: break-word; }
 .msg .body.rich { white-space: normal; }
+.msg .body.rich p, .msg .body.rich blockquote, .chip-result p { white-space: pre-line; }
 .msg .body.rich .md > :first-child { margin-top: 0; } .msg .body.rich .md > :last-child { margin-bottom: 0; }
 .msg.user .body { border-left: 2px solid var(--accent); padding-left: 10px; }
 .msg.error .body { color: var(--err); }
@@ -245,3 +246,14 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .switch-btn:hover, .switch-btn:focus-visible { background: var(--surface-2); }
 .good { color: var(--ok); }
 .bad { color: var(--err); }
+.help-link { display: inline-flex; align-items: center; gap: 6px; }
+.guide { min-width: 0; max-width: 860px; }
+.guide .md { font-size: 15px; line-height: 1.6; }
+.guide .md h2 { font-size: 22px; margin: 0 0 12px; }
+.guide .md h3, .guide .md h4 { font-size: 15px; margin: 22px 0 6px; }
+.guide .md table { font-size: 14px; }
+.guide .md code { font-family: var(--font-mono); font-size: 13px; }
+.guide figure.shot { margin: 14px 0 18px; }
+.guide figure.shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); }
+.guide figure.shot figcaption { font: 12px var(--font-mono); color: var(--muted); margin-top: 4px; }
+.guide-nav { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; gap: 8px; }

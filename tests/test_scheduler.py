@@ -61,6 +61,16 @@ def ctx(services: Services, source: str = "cli", session: str = "cli:1", restric
 # Management
 
 
+def test_a_sentence_is_stored_as_the_cron_it_means(sched: SchedulerService) -> None:
+    row = sched.create("morning", "ogni mattina alle 6", "Say hello", CHAT)
+    assert row["expression"] == "0 6 * * *"                                           # the sentence is not kept, its meaning is
+    assert sched.update("morning", expression="every monday and thursday at 9am")["expression"] == "0 9 * * 1,4"
+    assert sched.interpret("every morning at 6") == {"interpreted": "0 6 * * *", "source": "every morning at 6"}
+    assert sched.interpret("0 6 * * *") == {"interpreted": "0 6 * * *", "source": ""}
+    with pytest.raises(SchedulerError, match="at what time"):
+        sched.create("x", "every morning", "p")
+
+
 def test_create_validates_everything(sched: SchedulerService) -> None:
     row = sched.create("morning", "0 8 * * *", "Say hello", CHAT)
     assert row["expression"] == "0 8 * * *" and row["next_run"] == NOW + 86400 and row["enabled"] and row["created_by"] == "user"
@@ -68,7 +78,7 @@ def test_create_validates_everything(sched: SchedulerService) -> None:
         sched.create("morning", "0 9 * * *", "x")
     for name, expr, prompt, chat, why in [
         ("Bad Name", "0 8 * * *", "x", None, "name must be"), ("a", "* * * * *", "x", None, "more often"), ("a", "0 8 * * *", " ", None, "empty"),
-        ("a", "0 8 * * *", "x" * 2001, None, "longer"), ("a", "0 8 * * *", "x", 999, "TELEGRAM_ALLOWED_IDS"), ("a", "nonsense", "x", None, "five fields"),
+        ("a", "0 8 * * *", "x" * 2001, None, "longer"), ("a", "0 8 * * *", "x", 999, "TELEGRAM_ALLOWED_IDS"), ("a", "nonsense", "x", None, "five cron fields"),
     ]:
         with pytest.raises(SchedulerError, match=why):
             sched.create(name, expr, prompt, chat)
@@ -402,6 +412,7 @@ async def test_cron_command(services: Services, sched: SchedulerService, sink: S
     assert "created" in out and "delivered on Telegram" in out and sched.get("news")["deliver_chat"] == CHAT
     assert "Usage" in await run("/cron add oops")
     assert "Error: " in await run("/cron add x | * * * * * | p")
+    assert "0 6 * * *" in await run("/cron add early | ogni mattina alle 6 | Say hello") + await run("/cron")
     assert "news" in await run("/cron list") and "0 8 * * *" in await run("/cron")
     assert "paused" in await run("/cron pause news") and "resumed" in await run("/cron resume news")
     llm_ready.queue(Text("ok"))
@@ -447,6 +458,9 @@ def test_api_lifecycle(api: TestClient) -> None:
     assert api.put("/api/schedules/new3", json={"expression": "* * * * *", "prompt": "p"}).status_code == 422
     assert api.put("/api/schedules/new4", json={"expression": "@daily", "prompt": "p", "enabled": False}).json()["enabled"] is False
     assert api.post("/api/schedules/preview", json={"expression": "0 8 * * 1"}).json()["runs"][0].endswith("UTC")
+    said = api.post("/api/schedules/preview", json={"expression": "ogni mattina alle 6"}).json()
+    assert said["interpreted"] == "0 6 * * *" and said["source"] == "ogni mattina alle 6" and len(said["runs"]) == 5
+    assert api.post("/api/schedules/preview", json={"expression": "every morning"}).status_code == 422
     assert api.post("/api/schedules/preview", json={"expression": "x"}).status_code == 422
     assert api.get("/api/schedules/news/runs").json() == []
     assert api.get("/api/schedules/ghost/runs").status_code == 404

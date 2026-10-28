@@ -1,0 +1,42 @@
+# Tools
+
+Which tools the assistant may use on each gateway, how often they were used, and what each group of tools is *for*.
+
+![The toolset matrix](/static/guide/img/tools-1-matrix.png)
+
+## The matrix
+
+- **One row per toolset**, with the number of tools in it. Click the name to list its tools: each with its description, a badge `open bot ok` if it may be used by the open Telegram bot, `not available now` when it needs something that is not set, and how many calls it had since the server started.
+- **One column per gateway**: *CLI*, *WEB* (this dashboard's chat), *API*, *TELEGRAM* and *CRON* (scheduled tasks).
+- **Click a switch** to turn a toolset on or off for that gateway. The lists on the [Config](#/guide?s=config) page are updated for you. A gateway that had no list of its own gets a copy of the shared one with your change, so the other gateways do not move.
+- The **Calls** column counts uses since the server started.
+
+### The toolsets
+`memory` (notes and profile), `skills`, `search` (search the past conversations) and `web` (web search and page fetch), `file` (read and write in the workspace), `terminal` (shell commands; off by default and handle with care), `knowledge` (your documents), `cron` (scheduled tasks), `agents` (delegate to sub-agents) and one `mcp:<server>` for each MCP server.
+
+## Instructions: what is it for?
+
+A tool's schema says *how* to call it, not *why* it exists. Here you write, for each MCP server and tool group, **when to use it and when not**. The assistant reads this in its prompt (the *Capabilities* section) and can ask for the full text with `tool_help`.
+
+- **The counter** (*Capabilities section: 239 / 3000 characters*) shows how much of the budget `INSTRUCTIONS_BUDGET` is used. Over the budget the text is shortened automatically.
+- **What the agent sees** opens the exact section.
+- **Apply to open conversations** makes running conversations pick up your changes.
+- **One row per group** with badges: `documented`, `undocumented` (an MCP server with nothing written), `not used` (written but turned off). *Edit* opens it.
+
+### The editor
+
+![Writing an instruction and testing it](/static/guide/img/tools-2-test.png)
+
+- **The text** and its counter (about 600 characters is a good size), and *Use it in the prompt* to keep it without sending it.
+- **Hint for the draft**: a few words ("my local Linux servers and Proxmox") to steer the model.
+- **Generate** writes a draft from the tools the group offers and your other instructions; **Improve** rewrites the current text keeping what is right; **Shorten** cuts it. You see a draft and choose *Use this text* or *Discard*. Nothing is saved until you press *Save*.
+- **Use my profile and notes for the draft** also sends your memory (names, address ranges) to the model that writes the draft; it is off by default.
+- **Test** dry-runs the model's choice: it writes about eight test requests (some that need the group, some near misses, some that need no tool), sends each to the model with the real tools, and reads only the first tool it picks. **No tool is executed.** You get a score and a pass/fail per request, and the score of the saved text for comparison.
+- **Refine and test** lets the model rewrite the text up to three times from the failures and keeps the best-scoring one; you still decide whether to use it.
+- **Save**, **Delete**, and **Notes for single tools** below for one-line notes about individual tools. An accepted text is recorded in [Journey](#/guide?s=journey) with its score (for example `[test 5/6]`).
+
+## Good to know
+
+- Tests need the group's tools to be on for *WEB*: if not, the page tells you to switch them on.
+- At most 10 evaluations an hour (`ASSIST_EVALUATIONS_PER_HOUR`): each calls the model many times. The provider of the `assist` route (or `default`) receives the tool names and descriptions.
+- In a chat, `/assist mcp:proxmox` does draft, test and score in one go.

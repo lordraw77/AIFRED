@@ -101,6 +101,11 @@ class SchedulerService:
         except cron.CronError as exc:
             raise SchedulerError(str(exc)) from None
 
+    def interpret(self, expression: str) -> dict[str, str]:
+        """How an expression is read: the cron expression it is stored as, and the sentence it came from (empty for cron)."""
+        spec = self.parse(expression)
+        return {"interpreted": spec.text, "source": spec.source}
+
     def preview(self, expression: str, count: int = 3) -> list[str]:
         """The next run times of an expression, for confirmation."""
         spec = self.parse(expression)

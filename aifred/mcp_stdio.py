@@ -191,7 +191,10 @@ class StdioClient(McpClient):
                         break
         except (OSError, ValueError):
             pass
-        code = proc.poll()
+        try:
+            code: int | None = proc.wait(timeout=2)      # stdout closing and the exit status are not simultaneous
+        except subprocess.TimeoutExpired:
+            code = None
         self._fail_all("the server process exited" + (f" with code {code}" if code is not None else ""))
 
     def _read_stderr(self) -> None:
