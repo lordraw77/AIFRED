@@ -42,7 +42,7 @@ await api("PUT", `/api/providers/${p.id}/models`, [{ model_id: "demo-model-1" }]
 await api("POST", `/api/providers/${p.id}/models/demo-model-1/test`); await api("POST", `/api/providers/${p.id}/models/demo-model-1/test`);
 await api("PUT", "/api/routes/default", { entries: [{ provider: "demo-llm", model: "demo-model-1" }] });
 await api("PUT", "/api/config", { values: {
-  TOOLSETS: "memory, search, skills, web, file, agents, cron, mcp:proxmox", TELEGRAM_ALLOWED_IDS: "4242", SCHEDULER_TIMEZONE: "Europe/Rome",
+  TOOLSETS: "memory, search, skills, web, file, library, agents, cron, mcp:proxmox", TELEGRAM_ALLOWED_IDS: "4242", SCHEDULER_TIMEZONE: "Europe/Rome",
   RAG_ENABLED: true, RAG_EMBED_PROVIDER: "demo-llm", RAG_EMBED_MODEL: "embed-demo", WRITE_APPROVAL: "all",
 } });
 await api("PUT", "/api/mcp/servers/proxmox", { url: MCP, skip_test: true, instruction: "Proxmox cluster of the homelab. Use it for questions about virtual machines, nodes and backups. Do not use it for the Linux hosts." });
@@ -67,6 +67,9 @@ await api("POST", "/api/memory/memory", { content: "The [[NAS]] stores the [[Pro
 await api("POST", "/api/memory/memory", { content: "[[Home Assistant]] runs on [[pve02]]" });
 await api("POST", "/api/memory/user", { content: "Name: Alessandro. Prefers answers in Italian" });
 await api("POST", "/api/memory/user", { content: "Works with [[Proxmox]], [[Docker]] and [[Home Assistant]]" });
+await api("POST", "/api/library", { title: "Fried rice recipe", tags: ["cooking", "dinner"], source: "chat", prompt: "Give me the recipe for fried rice", content: "# Fried rice\n\n- 300 g cooked rice, a day old\n- 2 eggs\n- 2 spring onions\n- soy sauce\n\nFry the eggs, add the rice and the onions, finish with soy sauce." });
+await api("POST", "/api/library", { title: "NAS restore checklist", tags: ["homelab"], source: "agent", prompt: "Write the checklist to restore the NAS backup", content: "1. Stop the backup job\n2. Mount the backup volume\n3. Restore to a temporary folder\n4. Compare checksums\n5. Move the files back" });
+await api("POST", "/api/library", { title: "Greeting", tags: [], source: "manual", prompt: "Say hello", content: "Hi there." });
 await api("PUT", "/api/skills/backup-guide", { description: "How the nightly backup of the NAS works and how to restore a file", body: "# Backup guide\n\nThe nightly backup runs at **02:00** and is kept for 14 days.\n\n## Restore a file\n\n1. Open the Proxmox Backup Server\n2. Pick the day\n3. Download the file\n" });
 await api("PUT", "/api/skills/server-report", { description: "Write the weekly report of the servers: disks, updates, failed services", body: "# Server report\n\nCollect disk usage, pending updates and failed services, then write five bullet points." });
 await api("POST", "/api/rag/collections", { name: "homelab", description: "Runbooks and notes of the homelab" });
@@ -103,6 +106,22 @@ await step("commands", async () => {
   await page.fill("textarea[aria-label=Message]", "/help");
   await page.getByRole("button", { name: "Send" }).click(); await wait(1500);
   await shot("commands-1-help");
+});
+
+await step("library", async () => {
+  await go("chat");
+  await page.getByRole("button", { name: "New" }).click(); await wait(500);
+  await page.fill("textarea[aria-label=Message]", "Give me the recipe for pancakes");
+  await page.getByRole("button", { name: "Send" }).click(); await wait(2000);
+  await page.getByRole("button", { name: "Save to library" }).last().click(); await wait(500);
+  await shot("library-1-save");
+  await go("library"); await wait(800);
+  await page.locator(".lib-head", { hasText: "Fried rice recipe" }).click(); await wait(800);
+  await shot("library-2-list");
+  await page.locator(".lib-head", { hasText: "Greeting" }).click(); await wait(500);
+  await page.getByRole("button", { name: "Regenerate" }).click(); await wait(2500);
+  await scrollTo(page.locator(".draft").first());
+  await shot("library-3-regenerate");
 });
 
 // Sessions, memory, skills -----------------------------------------------------------------

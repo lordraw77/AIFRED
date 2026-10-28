@@ -11,6 +11,7 @@ A sub-agent is a specialist the main assistant can hand a task to: a researcher 
 - **One card per agent**: dot (green = on), name, badges for its model route and memory mode, then *Turn on/off*, *Test*, *History*, *Edit*, *Delete*. Under it: what it is for, its toolsets and skills, its limits.
 - **Test**: write a task and press *Run*; you see the answer, the tokens used, the model and the conversation it ran in.
 - **History**: the latest runs with status, time, tokens, the task and the output.
+- **Save to library** under a successful result (in *Test* and in *History*): keeps it in the [Library](#/guide?s=library).
 
 ## The form
 

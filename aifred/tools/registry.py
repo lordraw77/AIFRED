@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SOURCE_TO_GATEWAY = {"cli": "CLI", "telegram": "TELEGRAM", "api": "API", "web": "WEB", "cron": "CRON"}
+SOURCE_TO_GATEWAY = {"cli": "CLI", "telegram": "TELEGRAM", "api": "API", "web": "WEB", "cron": "CRON", "library": "WEB"}
 RESTRICTED_TOOLSETS = frozenset({"search", "skills", "web"})
 """Toolsets an open (unauthenticated) gateway may use, further limited by each tool's ``restricted_ok``."""
 

@@ -12,7 +12,7 @@ Which tools the assistant may use on each gateway, how often they were used, and
 - The **Calls** column counts uses since the server started.
 
 ### The toolsets
-`memory` (notes and profile), `skills`, `search` (search the past conversations) and `web` (web search and page fetch), `file` (read and write in the workspace), `terminal` (shell commands; off by default and handle with care), `knowledge` (your documents), `cron` (scheduled tasks), `agents` (delegate to sub-agents) and one `mcp:<server>` for each MCP server.
+`memory` (notes and profile), `skills`, `search` (search the past conversations) and `web` (web search and page fetch), `file` (read and write in the workspace), `terminal` (shell commands; off by default and handle with care), `knowledge` (your documents), `library` (answers you saved: `library_search`, `library_get`, `library_save`), `cron` (scheduled tasks), `agents` (delegate to sub-agents) and one `mcp:<server>` for each MCP server.
 
 ## Instructions: what is it for?
 

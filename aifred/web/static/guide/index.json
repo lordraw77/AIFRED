@@ -1,23 +1,224 @@
 {
   "sections": [
-    {"id": "start", "title": {"en": "Getting started", "it": "Primi passi"}, "summary": {"en": "What AIFRED is and the first ten minutes", "it": "Cos'è AIFRED e i primi dieci minuti"}},
-    {"id": "chat", "title": {"en": "Chat", "it": "Chat"}, "summary": {"en": "Talk to the assistant", "it": "Parlare con l'assistente"}},
-    {"id": "commands", "title": {"en": "Chat commands and Telegram", "it": "Comandi di chat e Telegram"}, "summary": {"en": "Slash commands and the bot", "it": "Comandi con la barra e il bot"}},
-    {"id": "sessions", "title": {"en": "Sessions", "it": "Sessioni"}, "summary": {"en": "Conversations and history search", "it": "Conversazioni e ricerca nella cronologia"}},
-    {"id": "memory", "title": {"en": "Memory", "it": "Memoria"}, "summary": {"en": "What the assistant remembers", "it": "Cosa ricorda l'assistente"}},
-    {"id": "skills", "title": {"en": "Skills", "it": "Skill"}, "summary": {"en": "Saved procedures", "it": "Procedure salvate"}},
-    {"id": "knowledge", "title": {"en": "Knowledge", "it": "Knowledge"}, "summary": {"en": "Your documents, search and quality", "it": "I tuoi documenti, ricerca e qualità"}},
-    {"id": "schedules", "title": {"en": "Schedules", "it": "Pianificazioni"}, "summary": {"en": "Tasks that run by themselves", "it": "Attività che partono da sole"}},
-    {"id": "agents", "title": {"en": "Agents", "it": "Agenti"}, "summary": {"en": "Specialist sub-agents", "it": "Sub-agenti specializzati"}},
-    {"id": "tools", "title": {"en": "Tools", "it": "Strumenti"}, "summary": {"en": "Toolsets per gateway and instructions", "it": "Toolset per gateway e istruzioni"}},
-    {"id": "mcp", "title": {"en": "MCP", "it": "MCP"}, "summary": {"en": "External tool servers", "it": "Server di strumenti esterni"}},
-    {"id": "models", "title": {"en": "Models", "it": "Modelli"}, "summary": {"en": "Providers, routes, health", "it": "Provider, route, stato"}},
-    {"id": "journey", "title": {"en": "Journey", "it": "Journey"}, "summary": {"en": "Approvals and what changed", "it": "Approvazioni e cosa è cambiato"}},
-    {"id": "logs", "title": {"en": "Logs", "it": "Log"}, "summary": {"en": "What the server is doing", "it": "Cosa sta facendo il server"}},
-    {"id": "config", "title": {"en": "Config", "it": "Config"}, "summary": {"en": "Every setting", "it": "Tutte le impostazioni"}},
-    {"id": "keys", "title": {"en": "API keys", "it": "Chiavi API"}, "summary": {"en": "Use AIFRED from other apps", "it": "Usare AIFRED da altre app"}},
-    {"id": "account", "title": {"en": "Account", "it": "Account"}, "summary": {"en": "Password and signed-in browsers", "it": "Password e browser connessi"}},
-    {"id": "system", "title": {"en": "System", "it": "Sistema"}, "summary": {"en": "Status of the server", "it": "Stato del server"}},
-    {"id": "guide", "title": {"en": "This guide", "it": "Questa guida"}, "summary": {"en": "How the guide works", "it": "Come funziona la guida"}}
+    {
+      "id": "start",
+      "title": {
+        "en": "Getting started",
+        "it": "Primi passi"
+      },
+      "summary": {
+        "en": "What AIFRED is and the first ten minutes",
+        "it": "Cos'è AIFRED e i primi dieci minuti"
+      }
+    },
+    {
+      "id": "chat",
+      "title": {
+        "en": "Chat",
+        "it": "Chat"
+      },
+      "summary": {
+        "en": "Talk to the assistant",
+        "it": "Parlare con l'assistente"
+      }
+    },
+    {
+      "id": "commands",
+      "title": {
+        "en": "Chat commands and Telegram",
+        "it": "Comandi di chat e Telegram"
+      },
+      "summary": {
+        "en": "Slash commands and the bot",
+        "it": "Comandi con la barra e il bot"
+      }
+    },
+    {
+      "id": "sessions",
+      "title": {
+        "en": "Sessions",
+        "it": "Sessioni"
+      },
+      "summary": {
+        "en": "Conversations and history search",
+        "it": "Conversazioni e ricerca nella cronologia"
+      }
+    },
+    {
+      "id": "memory",
+      "title": {
+        "en": "Memory",
+        "it": "Memoria"
+      },
+      "summary": {
+        "en": "What the assistant remembers",
+        "it": "Cosa ricorda l'assistente"
+      }
+    },
+    {
+      "id": "skills",
+      "title": {
+        "en": "Skills",
+        "it": "Skill"
+      },
+      "summary": {
+        "en": "Saved procedures",
+        "it": "Procedure salvate"
+      }
+    },
+    {
+      "id": "knowledge",
+      "title": {
+        "en": "Knowledge",
+        "it": "Knowledge"
+      },
+      "summary": {
+        "en": "Your documents, search and quality",
+        "it": "I tuoi documenti, ricerca e qualità"
+      }
+    },
+    {
+      "id": "library",
+      "title": {
+        "en": "Library",
+        "it": "Libreria"
+      },
+      "summary": {
+        "en": "Answers you keep",
+        "it": "Risposte che conservi"
+      }
+    },
+    {
+      "id": "schedules",
+      "title": {
+        "en": "Schedules",
+        "it": "Pianificazioni"
+      },
+      "summary": {
+        "en": "Tasks that run by themselves",
+        "it": "Attività che partono da sole"
+      }
+    },
+    {
+      "id": "agents",
+      "title": {
+        "en": "Agents",
+        "it": "Agenti"
+      },
+      "summary": {
+        "en": "Specialist sub-agents",
+        "it": "Sub-agenti specializzati"
+      }
+    },
+    {
+      "id": "tools",
+      "title": {
+        "en": "Tools",
+        "it": "Strumenti"
+      },
+      "summary": {
+        "en": "Toolsets per gateway and instructions",
+        "it": "Toolset per gateway e istruzioni"
+      }
+    },
+    {
+      "id": "mcp",
+      "title": {
+        "en": "MCP",
+        "it": "MCP"
+      },
+      "summary": {
+        "en": "External tool servers",
+        "it": "Server di strumenti esterni"
+      }
+    },
+    {
+      "id": "models",
+      "title": {
+        "en": "Models",
+        "it": "Modelli"
+      },
+      "summary": {
+        "en": "Providers, routes, health",
+        "it": "Provider, route, stato"
+      }
+    },
+    {
+      "id": "journey",
+      "title": {
+        "en": "Journey",
+        "it": "Journey"
+      },
+      "summary": {
+        "en": "Approvals and what changed",
+        "it": "Approvazioni e cosa è cambiato"
+      }
+    },
+    {
+      "id": "logs",
+      "title": {
+        "en": "Logs",
+        "it": "Log"
+      },
+      "summary": {
+        "en": "What the server is doing",
+        "it": "Cosa sta facendo il server"
+      }
+    },
+    {
+      "id": "config",
+      "title": {
+        "en": "Config",
+        "it": "Config"
+      },
+      "summary": {
+        "en": "Every setting",
+        "it": "Tutte le impostazioni"
+      }
+    },
+    {
+      "id": "keys",
+      "title": {
+        "en": "API keys",
+        "it": "Chiavi API"
+      },
+      "summary": {
+        "en": "Use AIFRED from other apps",
+        "it": "Usare AIFRED da altre app"
+      }
+    },
+    {
+      "id": "account",
+      "title": {
+        "en": "Account",
+        "it": "Account"
+      },
+      "summary": {
+        "en": "Password and signed-in browsers",
+        "it": "Password e browser connessi"
+      }
+    },
+    {
+      "id": "system",
+      "title": {
+        "en": "System",
+        "it": "Sistema"
+      },
+      "summary": {
+        "en": "Status of the server",
+        "it": "Stato del server"
+      }
+    },
+    {
+      "id": "guide",
+      "title": {
+        "en": "This guide",
+        "it": "Questa guida"
+      },
+      "summary": {
+        "en": "How the guide works",
+        "it": "Come funziona la guida"
+      }
+    }
   ]
 }

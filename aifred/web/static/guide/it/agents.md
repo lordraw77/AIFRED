@@ -11,6 +11,7 @@ Un sub-agente è uno specialista a cui l'assistente principale può affidare un 
 - **Una scheda per agente**: pallino (verde = attivo), nome, badge con la route del modello e la modalità di memoria, poi *Turn on/off*, *Test*, *History*, *Edit*, *Delete*. Sotto: a cosa serve, toolset e skill, limiti.
 - **Test**: scrivi un compito e premi *Run*; vedi la risposta, i token usati, il modello e la conversazione in cui è girato.
 - **History**: le ultime esecuzioni con stato, orario, token, compito e output.
+- **Save to library** sotto un risultato riuscito (in *Test* e in *History*): lo conserva nella [Libreria](#/guide?s=library).
 
 ## Il modulo
 

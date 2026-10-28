@@ -10,6 +10,7 @@ La chat è il modo principale di usare AIFRED dal browser. Le risposte arrivano 
 - **L'elenco delle conversazioni**: le conversazioni web, dalla più recente (fino a 50), con le prime parole del primo messaggio come titolo e il numero di messaggi. Un clic la apre. Passando il mouse su una riga compare il cestino; premerlo chiede *Delete / No*, così un clic sbagliato non cancella nulla. Cancellare elimina anche le conversazioni dei sub-agenti avviati da quella conversazione.
 - **I messaggi**: *You* sopra, *AIFRED* sotto. Il testo dell'assistente è formattato: titoli, elenchi, tabelle, citazioni, codice, grassetto e corsivo, e link che si aprono in una nuova scheda. L'HTML non viene mai interpretato.
 - **Le righe degli strumenti**, come `mcp__proxmox__list_vms()`: ogni volta che l'assistente usa uno strumento compare una riga. Un clic ne apre il risultato, un altro lo chiude. Il simbolo ▸ vuol dire chiuso, ▾ aperto.
+- **Save to library** sotto ogni risposta: la conserva insieme alla richiesta che l'ha prodotta (vedi [Library](#/guide?s=library)).
 - **La riga di utilizzo** sotto una risposta: quale modello ha risposto e quanti token ha usato la richiesta.
 - **La casella in basso**: `Invio` invia, `Maiusc+Invio` va a capo. Scrivere `/` inizia un comando (vedi [Comandi di chat e Telegram](#/guide?s=commands)). Mentre una risposta viene scritta il pulsante *Send* diventa *Stop*.
 

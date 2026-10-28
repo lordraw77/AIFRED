@@ -28,6 +28,7 @@ AIFRED is a personal assistant that runs on your own hardware. You talk to it fr
 | **Gateway** | A way of talking to AIFRED: the web chat, Telegram, the API, the command line, and scheduled tasks. |
 | **Toolset** | A group of tools (`memory`, `web`, `file`, `agents`, `cron`, `mcp:<server>`…). Each gateway has its own list of enabled toolsets. |
 | **Memory** | Short notes the assistant keeps between conversations (`MEMORY.md`) and about you (`USER.md`). |
+| **Library** | Answers and results you chose to keep (a recipe, a checklist); the assistant reads them back when a request matches. |
 | **Skill** | A saved procedure the assistant can load when a task matches. |
 | **MCP server** | An external program that offers more tools (for example your Proxmox or Linux hosts). |
 | **Approval** | With `WRITE_APPROVAL` on, what the assistant wants to save or schedule waits for your yes in [Journey](#/guide?s=journey). |

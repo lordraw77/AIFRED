@@ -17,6 +17,7 @@ from aifred.agent import Agent
 from aifred.config import RuntimeConfig, Settings
 from aifred.gateways.telegram import TelegramGateway
 from aifred.instructions import InstructionService
+from aifred.library import LibraryService
 from aifred.mcp import McpManager, McpService
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
@@ -160,6 +161,7 @@ class Services:
     instructions: InstructionService = field(init=False)
     mcp: McpService = field(init=False)
     mcp_manager: McpManager = field(init=False)
+    library: LibraryService = field(init=False)
 
     def __post_init__(self) -> None:
         self.review = ReviewService(self)
@@ -168,6 +170,7 @@ class Services:
         self.scheduler = SchedulerService(self)
         self.agents = AgentService(self)
         self.assist = AssistService(self)
+        self.library = LibraryService(self)
         self.mcp = McpService(self.store, self.vault, self.config, self.settings.data_dir / "mcp-stdio")
         self.mcp_manager = McpManager(self.mcp, self.store)
         self.tools.add_source(self.mcp_manager.tools)
@@ -238,7 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_agents, api_chat, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
+    from aifred.gateways import api, api_agents, api_chat, api_library, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -309,6 +312,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_mcp.router)
     app.include_router(api_sched.router)
     app.include_router(api_agents.router)
+    app.include_router(api_library.router)
     app.include_router(api_system.router)
     app.include_router(api_data.router)
     app.include_router(api_instructions.router)

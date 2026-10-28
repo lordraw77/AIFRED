@@ -49,7 +49,7 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 ### tools
 | Impostazione | Predefinito | Significato |
 |---|---|---|
-| `TOOLSETS` | memory, search, skills, web, file | I toolset che ogni gateway ha, a meno che non abbia un elenco proprio. |
+| `TOOLSETS` | memory, search, skills, web, file, library | I toolset che ogni gateway ha, a meno che non abbia un elenco proprio. |
 | `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB` | vuoto (eredita) | L'elenco proprio di un gateway. Gli interruttori di [Tools](#/guide?s=tools) e [MCP](#/guide?s=mcp) li modificano per te. |
 | `TOOLSETS_CRON` | search, web, skills | Toolset delle attività pianificate; aggiungine altri solo per attività di cui ti fidi. |
 | `ENABLE_TERMINAL` | off | Scorciatoia che aggiunge `terminal` (comandi di shell). |
@@ -90,6 +90,13 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 | `MCP_STDIO_COMMANDS` | vuoto | Nomi dei programmi che la dashboard può avviare come server MCP. Vuoto: la funzione è spenta. |
 | `MCP_OAUTH_CLIENT_ID` | vuoto | Client id registrato a mano per l'accesso OAuth. |
 | `MCP_OAUTH_PUBLIC_URL` | vuoto | Indirizzo https pubblico di AIFRED, perché possa servire il suo documento di metadati del client. |
+
+### library
+| Impostazione | Predefinito | Significato |
+|---|---|---|
+| `LIBRARY_ITEM_CHARS` | 20000 | Voce più grande che la [libreria](#/guide?s=library) accetta, in caratteri. |
+| `LIBRARY_MAX_ITEMS` | 500 | Massimo di voci che la libreria può contenere. |
+| `LIBRARY_PROMPT_ITEMS` | 30 | Titoli recenti elencati nel prompt di sistema (0: nessuno; l'assistente può comunque cercare). |
 
 ### knowledge
 | Impostazione | Predefinito | Significato |
