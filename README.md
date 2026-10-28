@@ -17,7 +17,7 @@ AIFRED is a small, from-scratch personal agent. It keeps the parts that matter (
 
 It runs on your hardware, talks to the LLMs you choose (local or hosted), and is configured entirely from a web dashboard.
 
-**Status:** early release (v0.4.0). It is tested (1,050+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
+**Status:** early release (v0.4.1). It is tested (1,050+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
 
 ## Highlights
 
