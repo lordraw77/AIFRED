@@ -11,7 +11,7 @@ import fcntl
 import logging
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 SEPARATOR = "\n§\n"
 Target = Literal["memory", "user"]
 FILES: dict[str, str] = {"memory": "MEMORY.md", "user": "USER.md"}
-LIMITS: dict[str, int] = {"memory": 2200, "user": 1375}
+LIMITS: dict[str, int] = {"memory": 2200, "user": 1375}  # defaults; MEMORY_LIMIT and USER_LIMIT override them
 
 
 class MemoryError_(Exception):  # noqa: N801 - avoids shadowing the builtin MemoryError
@@ -60,9 +60,11 @@ class Memory:
 
     Args:
         data_dir: Data directory (holds ``memory/`` and ``.lock``).
+        limits: Returns the character limit of a target; the defaults in ``LIMITS`` when omitted.
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, limits: Callable[[str], int] | None = None) -> None:
+        self._limits = limits
         self._dir = data_dir / "memory"
         self._lock_path = data_dir / ".lock"
         self._thread_lock = threading.Lock()
@@ -81,6 +83,12 @@ class Memory:
                     fcntl.flock(fd, fcntl.LOCK_UN)
                 finally:
                     os.close(fd)
+
+    def limit(self, target: str) -> int:
+        """Current character limit of one file."""
+        if target not in FILES:
+            raise MemoryError_(f"unknown target {target!r}; use 'memory' or 'user'")
+        return int(self._limits(target)) if self._limits else LIMITS[target]
 
     def _path(self, target: str) -> Path:
         if target not in FILES:
@@ -109,7 +117,7 @@ class Memory:
     def snapshot(self, target: str) -> Snapshot:
         """Read one file."""
         entries = self._read(target)
-        return Snapshot(target, entries, self._size(entries), LIMITS[target])
+        return Snapshot(target, entries, self._size(entries), self.limit(target))
 
     @staticmethod
     def _clean(content: str | None) -> str:
@@ -118,7 +126,7 @@ class Memory:
         return content.replace(SEPARATOR, "\n").replace("§", "-").strip()
 
     def _fit(self, target: str, entries: list[str], needed_for: str) -> None:
-        used, limit = self._size(entries), LIMITS[target]
+        used, limit = self._size(entries), self.limit(target)
         if used > limit:
             raise MemoryError_(
                 f"{target} memory is full: this change needs {used:,} of {limit:,} characters "

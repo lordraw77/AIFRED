@@ -17,7 +17,7 @@ AIFRED is a small, from-scratch personal agent. It keeps the parts that matter (
 
 It runs on your hardware, talks to the LLMs you choose (local or hosted), and is configured entirely from a web dashboard.
 
-**Status:** early release (v0.4.1). It is tested (1,050+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
+**Status:** early release (v0.5.0). It is tested (1,050+ automated tests, with the security rules checked by breaking them on purpose) and has been run against real services: a Telegram bot, three MCP servers, NVIDIA's hosted API and a local Ollama. Some paths are still only tested against fakes (servers that need headers, the newest MCP revision, the open Telegram bot, most providers); expect rough edges and please report them.
 
 ## Highlights
 
@@ -25,7 +25,7 @@ It runs on your hardware, talks to the LLMs you choose (local or hosted), and is
 - **A complete web dashboard:** chat with streaming and tool traces, sessions and search, memory, skills, knowledge base, tools, MCP servers, models and routes with health and usage, a journal with undo, live logs, configuration, API keys and account, in a dark and a light theme. Plain HTML, CSS and JS with no build step, behind a strict Content-Security-Policy.
 - **Bring any LLM, configure it from the web:** Ollama and local OpenAI-compatible servers (vLLM, llama.cpp, LM Studio), plus Groq, OpenRouter, Google Gemini, Cloudflare Workers AI, Cerebras, Mistral, NVIDIA and Hugging Face. Any other OpenAI-compatible endpoint works as a custom provider.
 - **Routes and automatic fallback:** ordered provider/model lists per gateway. When credit runs out, a provider is down or a request times out, AIFRED moves to the next entry, with cooldowns, health status and usage tracking.
-- **Curated memory:** small, bounded `MEMORY.md` and `USER.md` that the agent maintains, plus full-text search over past sessions.
+- **Curated memory:** small `MEMORY.md` and `USER.md` that the agent maintains (sizes are settings), drawn as a graph of the people, hosts and projects they mention, plus full-text search over past sessions.
 - **Local knowledge base (RAG):** your own documents, chunked and embedded into the same SQLite file, searched with hybrid (semantic + keyword) retrieval. Embeddings come from a model you choose, ideally a local one; only you can add documents, the agent can only search them. Reads text, PDF, Office and OpenDocument files, and images (JPG, PNG, WebP) and scanned pages through a vision model you choose, with metadata removed first and a daily limit; every file is parsed in a limited child process.
 - **Skills that learn:** file-based skills (`SKILL.md`) and a background review that proposes new memories, skills and better tool instructions, with optional approval before anything is saved and an undo for every change.
 - **Tools and MCP:** built-in toolsets (memory, search, skills, web, files, optional terminal) and a built-in MCP client (Streamable HTTP, current and earlier protocol revisions, HTTP and HTTPS, optional certificate skip).

@@ -4,6 +4,15 @@ All notable changes to AIFRED. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Added
+- **Memory as a graph.** Names written between double brackets (`[[Marco]] works at [[Acme]]`) become dots on a graph under the two memory files; names that share an entry are joined. Click a dot to see its entries. Older entries join when they mention a name already in use. The files remain the source; `GET /api/memory/graph/view`.
+- **`MEMORY_LIMIT` and `USER_LIMIT`.** The size of `MEMORY.md` and `USER.md` is now a setting (300 to 50,000 characters; defaults 2,200 and 1,375), with a link from each counter.
+
+### Changed
+- **Better extraction in the background review.** One fact per entry starting with its subject, absolute dates, the same spelling for a name, merge instead of near-duplicates, tidy-up above 85% full; the review sees how full each file is. A long conversation shortens the assistant's answers before dropping what the user said.
+
 ## [0.4.1] - 2026-10-28
 
 ### Added

@@ -26,7 +26,7 @@ def services_of(client: TestClient) -> Services:
 
 
 def test_everything_needs_the_admin(client: TestClient) -> None:
-    for path in ("/api/memory/memory", "/api/skills", "/api/tools", "/api/journal", "/api/pending", "/api/search?q=x", "/api/logs"):
+    for path in ("/api/memory/memory", "/api/memory/graph/view", "/api/skills", "/api/tools", "/api/journal", "/api/pending", "/api/search?q=x", "/api/logs"):
         assert client.get(path).status_code == 401, path
     assert client.post("/api/restart").status_code == 401
 
@@ -48,6 +48,20 @@ def test_memory_crud_and_journal(api: TestClient) -> None:
     actions = [(e["kind"], e["action"]) for e in api.get("/api/journal").json()]
     assert actions[:4] == [("memory", "remove"), ("memory", "replace"), ("memory", "add"), ("memory", "add")]
     assert api.get("/api/memory/user").json()["entries"] == []  # the profile is separate
+
+
+def test_memory_graph_and_limits_through_the_api(api: TestClient) -> None:
+    api.post("/api/memory/memory", json={"content": "[[Marco]] works at [[Acme]]"})
+    api.post("/api/memory/user", json={"content": "Marco likes tea"})
+    graph = api.get("/api/memory/graph/view").json()
+    assert {n["id"] for n in graph["nodes"]} == {"marco", "acme"}
+    assert graph["edges"][0]["weight"] == 1 and graph["unlinked"] == []
+    marco = next(n for n in graph["nodes"] if n["id"] == "marco")
+    assert marco["targets"] == ["memory", "user"]
+    assert api.get("/api/memory/user").json()["limit"] == 1375
+    services_of(api).config.update({"USER_LIMIT": 2000})
+    assert api.get("/api/memory/user").json()["limit"] == 2000
+    assert api.post("/api/memory/user", json={"content": "x" * 1700}).status_code == 201
 
 
 def test_memory_errors(api: TestClient) -> None:

@@ -49,6 +49,7 @@ Section numbers below are those of the specification as it was reviewed. Section
 
 1. **Open Telegram bot:** the "safe" toolsets include `memory` and `session_search`, which operate on the single admin's memory and history. Anyone could read past admin conversations or poison `USER.md`/`MEMORY.md` (see A9, D2).
 2. Several allowlisted Telegram users share a single `USER.md`.
+   - Memory size is now a setting (`MEMORY_LIMIT`, `USER_LIMIT`) and everything is sent with every request: a large limit costs tokens on each turn, and the memory graph is only a view, so it does not reduce what is sent. Retrieval by name (send only the neighbourhood of what the request mentions) is the next step if the files grow.
 3. CLI as a separate process: the session lock is in-process only, the background review has no defined home in the synchronous REPL, MCP connections are duplicated, and live-applied settings need a reload mechanism (the CLI re-reads settings from the database at each turn).
 4. History is trimmed by message count, not tokens, although `context_window` is known.
 5. Behind a reverse proxy the per-IP rate limit and the `Secure` cookie need trusted-proxy configuration.

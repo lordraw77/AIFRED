@@ -64,7 +64,9 @@ class MemoryArgs(BaseModel):
 @registry.tool(
     "memory", "memory",
     "Save durable facts across sessions: user preferences, environment details, lasting decisions. "
-    "Never store transient task details. Memory is small, so keep entries short and condense when it is full.",
+    "Never store transient task details. Memory is small, so keep entries short and condense when it is full. "
+    "Write one fact per entry, starting with its subject, and put people, hosts, projects and places between double "
+    "brackets, always spelled the same way ([[Marco]] works at [[Acme]]): the entries form a graph out of these names.",
     MemoryArgs,
 )
 def memory_tool(ctx: ToolContext, args: MemoryArgs) -> str:

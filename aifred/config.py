@@ -137,6 +137,8 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("COMPRESS_TRIGGER_TOKENS", "int", 12000, "agent", "Estimated history size (tokens) that triggers a summary", minimum=1000, maximum=500000),
         SettingSpec("COMPRESS_KEEP_MESSAGES", "int", 8, "agent", "Latest messages kept word for word when summarising", minimum=2, maximum=200),
         SettingSpec("COMPRESS_SUMMARY_TOKENS", "int", 700, "agent", "Length limit (tokens) of a summary", minimum=100, maximum=4000),
+        SettingSpec("MEMORY_LIMIT", "int", 2200, "agent", "Characters the assistant's notes (MEMORY.md) may use; they are sent with every request, so a larger file costs more on each one", minimum=300, maximum=50000),
+        SettingSpec("USER_LIMIT", "int", 1375, "agent", "Characters the user profile (USER.md) may use; sent with every request like the notes", minimum=300, maximum=50000),
         SettingSpec("IDLE_MINUTES", "int", 30, "agent", "Idle time before the system prompt is rebuilt", minimum=1, maximum=10080),
         SettingSpec("TOOL_OUTPUT_LIMIT", "int", 8000, "agent", "Maximum characters of tool output", minimum=500, maximum=200000),
         SettingSpec("LOG_LEVEL", "enum", "INFO", "system", "Log level", ("DEBUG", "INFO", "WARNING", "ERROR")),

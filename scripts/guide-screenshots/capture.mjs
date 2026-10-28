@@ -60,11 +60,13 @@ await step("tools-test", async () => {
   await shot("tools-2-test");
 });
 
-await api("POST", "/api/memory/memory", { content: "The router is at 10.70.0.1" });
-await api("POST", "/api/memory/memory", { content: "The NAS backup runs at 02:00 and is kept for 14 days" });
-await api("POST", "/api/memory/memory", { content: "Proxmox cluster: nodes pve (192.168.0.243) and pve02 (192.168.0.242)" });
+await api("POST", "/api/memory/memory", { content: "The [[router]] is at 10.70.0.1" });
+await api("POST", "/api/memory/memory", { content: "The [[NAS]] backup runs at 02:00 and is kept for 14 days" });
+await api("POST", "/api/memory/memory", { content: "[[Proxmox]] cluster: nodes [[pve]] (192.168.0.243) and [[pve02]] (192.168.0.242)" });
+await api("POST", "/api/memory/memory", { content: "The [[NAS]] stores the [[Proxmox]] backups" });
+await api("POST", "/api/memory/memory", { content: "[[Home Assistant]] runs on [[pve02]]" });
 await api("POST", "/api/memory/user", { content: "Name: Alessandro. Prefers answers in Italian" });
-await api("POST", "/api/memory/user", { content: "Works with Proxmox, Docker and Home Assistant" });
+await api("POST", "/api/memory/user", { content: "Works with [[Proxmox]], [[Docker]] and [[Home Assistant]]" });
 await api("PUT", "/api/skills/backup-guide", { description: "How the nightly backup of the NAS works and how to restore a file", body: "# Backup guide\n\nThe nightly backup runs at **02:00** and is kept for 14 days.\n\n## Restore a file\n\n1. Open the Proxmox Backup Server\n2. Pick the day\n3. Download the file\n" });
 await api("PUT", "/api/skills/server-report", { description: "Write the weekly report of the servers: disks, updates, failed services", body: "# Server report\n\nCollect disk usage, pending updates and failed services, then write five bullet points." });
 await api("POST", "/api/rag/collections", { name: "homelab", description: "Runbooks and notes of the homelab" });
@@ -110,7 +112,7 @@ await step("sessions", async () => {
   await page.fill("input[aria-label=Search]", "Dybala"); await page.keyboard.press("Enter"); await wait(1200);
   await shot("sessions-2-history");
 });
-await step("memory", async () => { await go("memory"); await shot("memory-1"); });
+await step("memory", async () => { await go("memory"); await shot("memory-1"); await page.evaluate(() => document.querySelector(".graph")?.scrollIntoView()); await shot("memory-2"); });
 await step("skills", async () => {
   await go("skills");
   await page.locator(".list-item", { hasText: "backup-guide" }).click(); await wait(600);
