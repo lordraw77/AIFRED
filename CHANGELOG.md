@@ -2,7 +2,7 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.7.1] - 2026-10-29
 
 ### Changed
 - **Connectors sign-in without localhost or https.** When the dashboard is open over plain http by the machine's address (an address Google refuses), a connector now registers `http://localhost:8700/api/mcp/oauth/callback` instead and finishes by *copying the address back*: after accepting at the provider the browser shows an error page; its address goes into a box on the card and *Finish* completes the sign-in. No SSH tunnel is needed and it works from any computer. With `https` or `localhost` the sign-in still finishes by itself. API `POST /api/mcp/oauth/complete` and `manual` on the OAuth start.
