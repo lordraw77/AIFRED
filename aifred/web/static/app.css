@@ -112,7 +112,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
 .tag.warn { border-color: var(--warn); color: var(--warn); }
 .tag.err { border-color: var(--err); color: var(--err); }
 .count { border: 1px solid var(--line); padding: 0 6px; font: 12px var(--font-mono); color: var(--muted); }
-.dot::before { content: "●"; margin-right: 6px; }
+.dot::before { content: "●"; margin-right: 6px; position: relative; top: -0.2em; }
 .dot.ok { color: var(--ok); } .dot.warn { color: var(--warn); } .dot.err { color: var(--err); } .dot.off { color: var(--muted); }
 .dot.off::before { content: "○"; } .dot.warn::before { content: "◐"; }
 
@@ -269,7 +269,7 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .g-node text { fill: var(--text); font: 11px var(--font-mono); pointer-events: none; }
 .g-node:hover circle, .g-node:focus-visible circle, .g-node.on circle { stroke: var(--text); }
 .g-legend { gap: 14px; font-size: 12px; }
-.dot { display: inline-block; font-style: normal; vertical-align: middle; }
+.dot { display: inline-block; font-style: normal; font-family: var(--font-mono); line-height: 1; vertical-align: middle; }
 .dot:empty { width: 10px; height: 10px; border-radius: 50%; }   /* a bare dot; with text the dot is only the bullet */
 .g-entries { margin: 8px 0 0; padding-left: 18px; }
 
