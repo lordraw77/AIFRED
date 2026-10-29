@@ -4,6 +4,9 @@ All notable changes to AIFRED. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Fixed
+- **Connected platforms.** The platform names on the Sessions overview overlapped their "last update" text; the status dot no longer holds the name.
+
 ## [0.6.1] - 2026-10-29
 
 ### Changed
