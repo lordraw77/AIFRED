@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from aifred.mcp import McpConfigError
-from aifred.mcp_oauth import OAuthError
+from aifred.mcp_oauth import MANUAL_REDIRECT, OAuthError
 
 if TYPE_CHECKING:
     from aifred.app import Services
@@ -94,12 +94,17 @@ CONNECTORS: dict[str, Connector] = {c.id: c for c in (
 
 
 def redirect_warning(redirect: str) -> str:
-    """A caution when the callback address is one that Google refuses, or an empty string."""
+    """Why Google would refuse this callback address (an empty string when it would accept it)."""
     parts = urlsplit(redirect)
     if parts.scheme == "https" or parts.hostname in LOCAL_HOSTS or (parts.hostname or "").endswith(".localhost"):
         return ""
-    return ("This address is plain http on a name that is not localhost, which Google does not accept as a redirect. "
-            "Open the dashboard as http://localhost:<port> (for example through an SSH tunnel), or serve AIFRED over https and set MCP_OAUTH_PUBLIC_URL on the Config page.")
+    return "plain http on a name that is not localhost"
+
+
+def _manual_note(why: str, own: str) -> str:
+    return (f"The dashboard is open at {own}, which is {why}: Google does not accept that as a redirect address. Register the address above instead. "
+            "After you press Authorize and accept, the browser tries to open it and shows an error page: copy that page's address from the address bar into the box below and press Finish. "
+            "(Or serve AIFRED over https and set MCP_OAUTH_PUBLIC_URL on the Config page, and the address follows it.)")
 
 
 def _live(services: Services, name: str) -> dict[str, Any] | None:
@@ -107,11 +112,14 @@ def _live(services: Services, name: str) -> dict[str, Any] | None:
 
 
 def state_of(services: Services, connector: Connector, redirect: str) -> dict[str, Any]:
-    """The preset together with how far its set-up has gone."""
+    """The preset together with how far its set-up has gone. ``redirect`` is this dashboard's own callback address."""
     server = services.mcp.get(connector.id)
-    data = connector.public(redirect)
-    data["redirect_uri"] = redirect
-    data["redirect_warning"] = redirect_warning(redirect)
+    why = redirect_warning(redirect)
+    chosen = MANUAL_REDIRECT if why else redirect   # an address Google refuses is replaced by one it accepts, answered by pasting
+    data = connector.public(chosen)
+    data["redirect_uri"] = chosen
+    data["flow"] = "paste" if why else "automatic"
+    data["redirect_note"] = _manual_note(why, redirect) if why else ""
     mine = server is not None and server.url == connector.url
     data["conflict"] = server is not None and not mine
     data["configured"] = mine

@@ -11,7 +11,7 @@ Server MCP già pronti per i prodotti che usi, da configurare in pochi passi. Il
 - **Redirect address to register**: l'indirizzo a cui il prodotto ti riporta dopo che accetti. Copialo identico nell'app che registri presso il prodotto. Compare un avviso quando il prodotto non lo accetterebbe (vedi *L'indirizzo di reindirizzamento* sotto).
 - **Client id** e **Client secret**: quelli dell'app che hai registrato. Il secret è conservato cifrato e non viene più mostrato; lascia il campo vuoto in un *Save* successivo per tenerlo.
 - **What the assistant may do**: i permessi da chiedere. Ognuno è una capacità reale dell'assistente, quindi tieni solo ciò che ti serve.
-- **Save**, poi **Authorize** (o *Sign in again*): il prodotto si apre in una nuova scheda, accetti, e questa pagina si aggiorna da sola. **Forget the sign-in** elimina i token; **Remove** cancella il connettore, i suoi token e il suo client.
+- **Save**, poi **Authorize** (o *Sign in again*): il prodotto si apre in una nuova scheda, accetti, e questa pagina si aggiorna da sola. Quando la dashboard è aperta in http semplice con l'indirizzo della macchina compare una casella *After accepting: the address of the page the browser ends on* e concludi con **Finish** (vedi *L'indirizzo di reindirizzamento*). **Forget the sign-in** elimina i token; **Remove** cancella il connettore, i suoi token e il suo client.
 - **Let the assistant use…**: gli interruttori che accendono gli strumenti del connettore per *CLI*, *Web*, *API*, *Telegram* e *Scheduled*. Senza di essi l'assistente non vede gli strumenti.
 
 ![Un connettore salvato, in attesa dell'accesso](/static/guide/img/connectors-2-saved.png)
@@ -29,7 +29,10 @@ Server MCP già pronti per i prodotti che usi, da configurare in pochi passi. Il
 **Cosa può fare.** Il server Gmail di Google ha strumenti per cercare thread, leggere un thread, elencare etichette e bozze, creare una bozza ed etichettare o togliere l'etichetta ai messaggi. **Non ha alcuno strumento che invii o elimini posta.** *Read mail* e *Write drafts* sono accesi di default: l'assistente può cercare e leggere, e preparare bozze che invii tu da Gmail. *Organise* aggiunge le etichette (lo scope di Google per questo permette anche di spostare la posta nel cestino). Accendi solo ciò che ti serve.
 
 ### L'indirizzo di reindirizzamento
-Google accetta un indirizzo di reindirizzamento solo se è `https`, oppure `http` su `localhost`. Se apri la dashboard con l'indirizzo della macchina (per esempio `http://192.168.0.5:8700`) la scheda mostra un avviso. Apri la dashboard come `http://localhost:8700` tramite un tunnel SSH (`ssh -L 8700:localhost:8700 il-tuo-host`) e fai l'accesso da lì, oppure servi AIFRED in https e imposta `MCP_OAUTH_PUBLIC_URL` nella pagina [Config](#/guide?s=config): l'indirizzo nella scheda lo segue.
+Google accetta un indirizzo di reindirizzamento solo se è `https`, oppure `http` su `localhost`. AIFRED sceglie il modo adatto a come hai aperto la dashboard, e la scheda ti dice quale:
+
+- **Automatico.** La dashboard è aperta in `https`, oppure come `http://localhost:…`: la scheda mostra il suo indirizzo, lo registri, e l'accesso si conclude da solo dopo che accetti. Per usare https servi AIFRED con un nome dietro il tuo reverse proxy (per esempio `https://aifred.example.org`) e imposta `MCP_OAUTH_PUBLIC_URL` nella pagina [Config](#/guide?s=config); quel nome deve aprirsi solo nel *tuo* browser, non da internet.
+- **Copia l'indirizzo.** La dashboard è aperta con l'indirizzo della macchina in http semplice (per esempio `http://192.168.0.5:8700`): la scheda mostra invece `http://localhost:8700/api/mcp/oauth/callback`, ed è quello da registrare. Premi **Authorize** e accetta nella scheda di Google. Il browser prova allora ad aprire `localhost:8700`, non ci riesce e mostra una pagina di errore: è previsto. Copia l'**indirizzo intero** dalla barra degli indirizzi, incollalo nella casella sotto il form e premi **Finish**. Non serve nessun tunnel e funziona da qualsiasi computer.
 
 ### Restare connessi
 Google dà a un'app con stato di pubblicazione **Testing** un accesso che scade dopo 7 giorni. Pubblica l'app (o usa un pubblico *Interno* in Google Workspace) così AIFRED può rinnovare l'accesso da solo. AIFRED chiede l'accesso offline, quindi viene rilasciato un accesso rinnovabile.
@@ -37,6 +40,7 @@ Google dà a un'app con stato di pubblicazione **Testing** un accesso che scade 
 ## Quando non funziona
 
 - **`redirect_uri_mismatch`**: l'indirizzo registrato presso Google non è identico a quello nella scheda. Copialo di nuovo.
+- **"This sign-in is unknown or has expired"** quando premi *Finish*: un accesso dura 10 minuti e vale una volta sola. Premi di nuovo *Authorize* e incolla il nuovo indirizzo.
 - **"Accesso bloccato" o "non verificata"**: aggiungi il tuo account Google come utente di test in *Pubblico*.
 - **Il token endpoint dice `client_secret is missing` o `invalid_client`**: incolla di nuovo il secret e premi *Save*; controlla che appartenga allo stesso client id.
 - **Connesso ma l'assistente non legge mai la posta**: il toolset è spento per quel gateway; usa gli interruttori nella scheda. Il bot Telegram aperto non ha mai strumenti MCP.

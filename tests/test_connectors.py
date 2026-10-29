@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from aifred import connectors
 from aifred.app import Services
 from aifred.connectors import Connector, ConnectorError, Permission
-from aifred.mcp_oauth import CALLBACK_PATH, OAuthError
+from aifred.mcp_oauth import CALLBACK_PATH, MANUAL_REDIRECT, OAuthError, pasted_answer
 from tests.conftest import login
 from tests.fake_mcp import FakeMcp
 from tests.fake_oauth import FakeOAuth
@@ -170,7 +170,7 @@ def test_removing_a_connector_drops_the_server_tokens_and_client(services: Servi
 def test_the_api_round_trip(api: TestClient, connector: Connector) -> None:
     listed = api.get("/api/connectors").json()
     assert [c["id"] for c in listed] == ["mail"] and listed[0]["configured"] is False and listed[0]["redirect_uri"].endswith(CALLBACK_PATH)
-    assert "https://testserver" in listed[0]["steps"][0] and listed[0]["redirect_warning"] == ""   # the test client is https
+    assert "https://testserver" in listed[0]["steps"][0] and listed[0]["flow"] == "automatic" and listed[0]["redirect_note"] == ""   # the test client is https
     saved = api.put("/api/connectors/mail", json={"client_id": "client-1", "client_secret": SECRET, "scopes": [READ, DRAFT]})
     assert saved.status_code == 200 and saved.json()["configured"] is True and saved.json()["client"] == {"client_id": "client-1", "has_secret": True, "scope": f"{READ} {DRAFT}"}
     assert SECRET not in saved.text and SECRET not in api.get("/api/connectors").text and SECRET not in api.get("/api/mcp/servers").text
@@ -195,3 +195,49 @@ def test_the_api_needs_a_signed_in_admin(client: TestClient, connector: Connecto
     assert client.get("/api/connectors").status_code == 401
     assert client.put("/api/connectors/mail", json={"client_id": "x", "client_secret": "y", "scopes": [READ]}).status_code in (401, 403)
     assert client.delete("/api/connectors/mail").status_code in (401, 403)
+
+
+def test_a_dashboard_on_plain_http_gets_the_paste_flow_with_an_address_google_accepts(services: Services, connector: Connector) -> None:
+    own = "http://192.168.0.5:8700" + CALLBACK_PATH
+    plain = connectors.state_of(services, connector, own)
+    assert plain["flow"] == "paste" and plain["redirect_uri"] == MANUAL_REDIRECT == "http://localhost:8700/api/mcp/oauth/callback"
+    assert MANUAL_REDIRECT in plain["steps"][0] and "192.168.0.5" in plain["redirect_note"] and "address bar" in plain["redirect_note"]
+    for fine in ("https://aifred.example.org" + CALLBACK_PATH, "http://localhost:8700" + CALLBACK_PATH):
+        automatic = connectors.state_of(services, connector, fine)
+        assert automatic["flow"] == "automatic" and automatic["redirect_uri"] == fine and automatic["redirect_note"] == ""
+
+
+def test_the_pasted_answer_is_read_from_an_address_or_a_bare_query() -> None:
+    assert pasted_answer(f"{MANUAL_REDIRECT}?state=abc&code=4%2F0xyz&scope=x") == ("abc", "4/0xyz")
+    assert pasted_answer("  code=c1&state=s1  ") == ("s1", "c1")
+    for bad, why in (("", "paste the address"), ("http://localhost:8700/", "no code"), (f"{MANUAL_REDIRECT}?state=s", "no code"),
+                     (f"{MANUAL_REDIRECT}?error=access_denied&error_description=No+thanks", "No thanks"), ("x" * 5000, "paste the address")):
+        with pytest.raises(OAuthError, match=why):
+            pasted_answer(bad)
+
+
+def test_signing_in_by_pasting_the_address_the_browser_ended_up_on(api: TestClient, connector: Connector, oauth_server: FakeOAuth) -> None:
+    api.put("/api/connectors/mail", json={"client_id": "client-1", "client_secret": SECRET, "scopes": [READ]})
+    started = api.post("/api/mcp/servers/mail/oauth/start", json={"manual": True})
+    assert started.status_code == 200
+    state, code = authorize(started.json()["url"])
+    assert oauth_server.authorize_queries[-1]["redirect_uri"] == MANUAL_REDIRECT   # the address Google accepts, not the dashboard's own
+    pasted = f"{MANUAL_REDIRECT}?state={state}&code={code}&scope=anything"   # what the address bar shows on the error page
+    done = api.post("/api/mcp/oauth/complete", json={"url": pasted})
+    assert done.status_code == 200 and done.json() == {"name": "mail"}
+    assert oauth_server.token_forms[-1]["redirect_uri"] == MANUAL_REDIRECT and oauth_server.token_forms[-1]["client_secret"] == SECRET
+    assert api.get("/api/connectors").json()[0]["authorized"] is True
+    again = api.post("/api/mcp/oauth/complete", json={"url": pasted})   # the state is single-use
+    assert again.status_code == 422 and "unknown or has expired" in again.json()["detail"]
+
+
+def test_a_pasted_answer_that_is_wrong_signs_nothing_in(api: TestClient, connector: Connector, services: Services) -> None:
+    api.put("/api/connectors/mail", json={"client_id": "client-1", "client_secret": SECRET, "scopes": [READ]})
+    for bad in ("", "not an address", f"{MANUAL_REDIRECT}?state=forged&code=whatever", f"{MANUAL_REDIRECT}?error=access_denied"):
+        assert api.post("/api/mcp/oauth/complete", json={"url": bad}).status_code == 422
+    assert not services.mcp.oauth.status("mail")["authorized"]
+    assert api.post("/api/mcp/oauth/complete", json={"url": "x" * 5000}).status_code == 422
+
+
+def test_pasting_an_answer_needs_the_admin(client: TestClient) -> None:
+    assert client.post("/api/mcp/oauth/complete", json={"url": f"{MANUAL_REDIRECT}?state=a&code=b"}).status_code in (401, 403)
