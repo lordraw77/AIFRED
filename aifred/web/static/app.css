@@ -269,7 +269,8 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .g-node text { fill: var(--text); font: 11px var(--font-mono); pointer-events: none; }
 .g-node:hover circle, .g-node:focus-visible circle, .g-node.on circle { stroke: var(--text); }
 .g-legend { gap: 14px; font-size: 12px; }
-.dot { display: inline-block; font-style: normal; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.dot { display: inline-block; font-style: normal; vertical-align: middle; }
+.dot:empty { width: 10px; height: 10px; border-radius: 50%; }   /* a bare dot; with text the dot is only the bullet */
 .g-entries { margin: 8px 0 0; padding-left: 18px; }
 
 /* Library */

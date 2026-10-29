@@ -2,6 +2,11 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [Unreleased]
+
+### Fixed
+- **Status dots with text.** On the System page and the Admin tables, the text next to a status dot (Telegram, the knowledge base, MCP servers, the secrets backend) overlapped the line below. A dot now only gets its fixed box when it is empty.
+
 ## [0.6.2] - 2026-10-29
 
 ### Fixed
