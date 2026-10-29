@@ -241,7 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_agents, api_chat, api_library, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
+    from aifred.gateways import api, api_agents, api_chat, api_connectors, api_library, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -310,6 +310,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_llm.router)
     app.include_router(api_rag.router)
     app.include_router(api_mcp.router)
+    app.include_router(api_connectors.router)
     app.include_router(api_sched.router)
     app.include_router(api_agents.router)
     app.include_router(api_library.router)

@@ -306,3 +306,10 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .tool-detail { display: grid; gap: 6px; padding-top: 4px; }
 .tool-detail .row { align-items: baseline; }
 .disc-title { font-size: 15px; font-family: var(--font-display); overflow-wrap: anywhere; flex: 1 1 14em; min-width: 0; }
+
+/* Connectors */
+.redirect { flex: 1 1 18em; min-width: 0; padding: 4px 8px; background: var(--bg); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.perms { gap: 8px; }
+.perm { align-items: flex-start; }
+.perm input { margin-top: 3px; }
+.steps-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; }

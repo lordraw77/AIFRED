@@ -8,7 +8,8 @@ code on ``/api/mcp/oauth/callback``. AIFRED then exchanges it for tokens and kee
   and ``http`` only on the host of the MCP server itself (a homelab server); redirects are never followed.
 * **Client identity.** Dynamic client registration is deprecated, so AIFRED uses a *client ID metadata document*: a client
   id that is an https address serving AIFRED's metadata (``MCP_OAUTH_PUBLIC_URL`` makes AIFRED serve it), or a client id
-  registered by hand (``MCP_OAUTH_CLIENT_ID`` or one per server). A public client: no secret is involved.
+  registered by hand (``MCP_OAUTH_CLIENT_ID`` or one per server). A client registered with a provider such as Google
+  also has a secret: it is kept encrypted in the vault next to its id and scope and sent only to the token endpoint.
 * **Safety.** ``state`` is single-use and expires, the code verifier never leaves the process, the token goes only to the
   endpoint found in discovery, and tokens are never logged or shown.
 """
@@ -50,6 +51,11 @@ class OAuthError(Exception):
 def secret_name(server: str) -> str:
     """Vault name of a server's tokens."""
     return f"mcp_oauth:{server}"
+
+
+def client_secret_name(server: str) -> str:
+    """Vault name of a server's own OAuth client (id, secret and scope)."""
+    return f"mcp_oauth_client:{server}"
 
 
 def _b64url(data: bytes) -> str:
@@ -215,6 +221,40 @@ class OAuthService:
             "response_types": ["code"], "token_endpoint_auth_method": "none",
         }
 
+    def set_client(self, server: str, client_id: str, client_secret: str | None, scope: str = "") -> None:
+        """Keep the OAuth client of one server. ``client_secret`` of ``None`` keeps the stored secret.
+
+        Raises:
+            OAuthError: If the client id is empty or the values are unreasonably long.
+        """
+        client_id = client_id.strip()
+        if not client_id or len(client_id) > 300:
+            raise OAuthError("the client id is required")
+        previous = self._client_record(server)
+        secret = previous.get("client_secret", "") if client_secret is None else client_secret.strip()
+        if len(secret) > 300 or len(scope) > 2000:
+            raise OAuthError("the client secret or the scope is too long")
+        self._vault.set(client_secret_name(server), json.dumps({"client_id": client_id, "client_secret": secret, "scope": scope.strip()}))
+
+    def _client_record(self, server: str) -> dict[str, str]:
+        raw = self._vault.get(client_secret_name(server))
+        try:
+            data = json.loads(raw) if raw else None
+        except ValueError:
+            return {}
+        return {k: str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+    def client_info(self, server: str) -> dict[str, Any] | None:
+        """The id and scope of a server's own client, and whether it has a secret (never the secret)."""
+        record = self._client_record(server)
+        if not record.get("client_id"):
+            return None
+        return {"client_id": record["client_id"], "has_secret": bool(record.get("client_secret")), "scope": record.get("scope", "")}
+
+    def forget_client(self, server: str) -> None:
+        """Drop a server's own client."""
+        self._vault.delete(client_secret_name(server))
+
     # Sign-in
 
     def begin(self, server: str, server_url: str, redirect_uri: str, client_override: str = "", scope: str = "") -> str:
@@ -224,12 +264,14 @@ class OAuthService:
             OAuthError: If discovery fails or no client id is available.
         """
         found = self.discover(server_url)
+        own = self._client_record(server)
+        client_override = client_override.strip() or own.get("client_id", "")
         client_id = self.client_id(client_override)
         if client_id.startswith("https://") and client_id.endswith(CIMD_PATH) and not found["cimd"] and not client_override.strip() and not str(self._config.get("MCP_OAUTH_CLIENT_ID") or "").strip():
             raise OAuthError("this authorization server does not accept client metadata documents: register AIFRED with it and set MCP_OAUTH_CLIENT_ID")
         verifier, challenge = pkce_pair()
         state = secrets.token_urlsafe(32)
-        scope = scope.strip() or " ".join(found["scopes"])
+        scope = scope.strip() or own.get("scope", "") or " ".join(found["scopes"])
         with self._lock:
             now = self._clock()
             for key in [k for k, p in self._pending.items() if now - p.created > PENDING_TTL]:
@@ -243,6 +285,8 @@ class OAuthService:
         }
         if scope:
             query["scope"] = scope
+        if urlsplit(found["authorization_endpoint"]).hostname == "accounts.google.com":
+            query.update({"access_type": "offline", "prompt": "consent"})   # without these Google issues no refresh token
         return f"{found['authorization_endpoint']}{'&' if '?' in found['authorization_endpoint'] else '?'}{urlencode(query)}"
 
     def finish(self, state: str, code: str) -> str:
@@ -255,12 +299,16 @@ class OAuthService:
             pending = self._pending.pop(state, None)
         if pending is None or self._clock() - pending.created > PENDING_TTL:
             raise OAuthError("this sign-in is unknown or has expired; start again from the MCP page")
-        tokens = self._token_request(pending.token_endpoint, {
+        tokens = self._token_request(pending.token_endpoint, self._with_secret(pending.server, {
             "grant_type": "authorization_code", "code": code, "redirect_uri": pending.redirect_uri, "client_id": pending.client_id,
             "code_verifier": pending.verifier, "resource": pending.resource,
-        })
+        }))
         self._store(pending.server, tokens, pending.client_id, pending.token_endpoint, pending.resource, pending.scope)
         return pending.server
+
+    def _with_secret(self, server: str, form: dict[str, str]) -> dict[str, str]:
+        secret = self._client_record(server).get("client_secret", "")
+        return {**form, "client_secret": secret} if secret else form
 
     def _token_request(self, endpoint: str, form: dict[str, str]) -> dict[str, Any]:
         with self._client() as client:
@@ -318,9 +366,9 @@ class OAuthService:
             return str(record["access_token"])
         if not record.get("refresh_token"):
             raise OAuthError("the access token expired and there is no refresh token: authorize again")
-        tokens = self._token_request(record["token_endpoint"], {
+        tokens = self._token_request(record["token_endpoint"], self._with_secret(server, {
             "grant_type": "refresh_token", "refresh_token": record["refresh_token"], "client_id": record["client_id"], "resource": record["resource"],
-        })
+        }))
         self._store(server, tokens, record["client_id"], record["token_endpoint"], record["resource"], record.get("scope", ""), record)
         logger.info("Refreshed the OAuth token of MCP server %s", server)
         return str(tokens["access_token"])

@@ -43,7 +43,7 @@ await api("POST", `/api/providers/${p.id}/models/demo-model-1/test`); await api(
 await api("PUT", "/api/routes/default", { entries: [{ provider: "demo-llm", model: "demo-model-1" }] });
 await api("PUT", "/api/config", { values: {
   TOOLSETS: "memory, search, skills, web, file, library, agents, cron, mcp:proxmox", TELEGRAM_ALLOWED_IDS: "4242", SCHEDULER_TIMEZONE: "Europe/Rome",
-  RAG_ENABLED: true, RAG_EMBED_PROVIDER: "demo-llm", RAG_EMBED_MODEL: "embed-demo", WRITE_APPROVAL: "all",
+  RAG_ENABLED: true, RAG_EMBED_PROVIDER: "demo-llm", RAG_EMBED_MODEL: "embed-demo", WRITE_APPROVAL: "all", MCP_OAUTH_PUBLIC_URL: "https://aifred.example.org",
 } });
 await api("PUT", "/api/mcp/servers/proxmox", { url: MCP, skip_test: true, instruction: "Proxmox cluster of the homelab. Use it for questions about virtual machines, nodes and backups. Do not use it for the Linux hosts." });
 await wait(2500);
@@ -173,6 +173,15 @@ await step("mcp", async () => {
   await go("mcp"); await wait(1200); await shot("mcp-1-servers");
   await page.getByRole("button", { name: "Add server" }).click(); await wait(500);
   await shot("mcp-2-form");
+});
+await step("connectors", async () => {
+  await go("connectors"); await wait(1200); await shot("connectors-1-catalog");
+  await page.fill("input[aria-label='Gmail client id']", "1234567890-abcdefgh.apps.googleusercontent.com");
+  await page.fill("input[aria-label='Gmail client secret']", "GOCSPX-demo-secret");
+  await page.getByRole("button", { name: "Save", exact: true }).click(); await wait(1200);
+  await page.locator(".disc-head", { hasText: "How to set it up" }).click();   // fold the steps so the card fits the screen
+  await page.evaluate(() => { document.getElementById("content").scrollTop = 0; }); await wait(4000);   // top of the page; the "Saved" toast goes away
+  await shot("connectors-2-saved");
 });
 await step("models", async () => {
   await go("models"); await wait(1200);

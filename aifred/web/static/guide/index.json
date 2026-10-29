@@ -133,6 +133,17 @@
       }
     },
     {
+      "id": "connectors",
+      "title": {
+        "en": "Connectors",
+        "it": "Connettori"
+      },
+      "summary": {
+        "en": "Gmail and other products, ready to connect",
+        "it": "Gmail e altri prodotti, pronti da collegare"
+      }
+    },
+    {
       "id": "models",
       "title": {
         "en": "Models",

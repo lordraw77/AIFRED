@@ -12,7 +12,7 @@ COPY requirements.lock /tmp/requirements.lock
 RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.lock
 
 FROM ${PYTHON_IMAGE}
-ARG VERSION=0.6.2
+ARG VERSION=0.7.0
 LABEL org.opencontainers.image.title="AIFRED" \
       org.opencontainers.image.description="A lean, self-hosted personal AI agent" \
       org.opencontainers.image.version="${VERSION}" \

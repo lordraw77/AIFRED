@@ -205,6 +205,7 @@ class McpService:
         return {
             "name": server.name, "url": server.url, "enabled": server.enabled, "headers": list(server.header_names), "command": list(server.command), "oauth": server.oauth,
             "oauth_status": self.oauth.status(server.name) if server.oauth else None,
+            "oauth_client": self.oauth.client_info(server.name) if server.oauth else None,
             "verify_tls": server.verify_tls, "tls_unverified": server.verify_tls is False,
             "timeout": server.timeout or call, "connect_timeout": server.connect_timeout or connect,
             "protocol_version": server.protocol_version, "include": list(server.include), "exclude": list(server.exclude),
@@ -350,6 +351,7 @@ class McpService:
             raise McpConfigError(f"no MCP server named {name!r}")
         self._vault.delete(secret_name(name))
         self.oauth.forget(name)
+        self.oauth.forget_client(name)
         self._store.instruction_delete(f"mcp:{name}")
         self._store.instruction_delete_prefix(f"tool:mcp__{name}__")
         self._store.journal_add("settings", "mcp_server", f"MCP server {name!r} deleted")

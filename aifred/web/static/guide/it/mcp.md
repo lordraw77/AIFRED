@@ -45,6 +45,8 @@ Al posto di un URL, un server può essere un **comando** che AIFRED avvia e con 
 
 Alcuni server vogliono che tu acceda con un provider nel browser. Spunta **Sign in with OAuth**, salva e premi **Authorize** sulla scheda: il provider si apre in una nuova scheda, accetti, e AIFRED conserva i token cifrati e li rinnova. La scheda mostra *OAuth: signed in*; **Forget the sign-in** rimuove i token.
 
+Per un prodotto che ha una voce già pronta (Gmail), la pagina [Connectors](#/guide?s=connectors) lo fa per te, compresi client id, client secret e permessi richiesti dal provider.
+
 Serve un'identità del client: o un client id registrato a mano presso il provider (`MCP_OAUTH_CLIENT_ID`), oppure, se AIFRED è raggiungibile da internet in https, il suo indirizzo pubblico in `MCP_OAUTH_PUBLIC_URL` (AIFRED serve allora il documento di metadati del client che il provider scarica). Una rete di casa non raggiungibile da fuori richiede la prima.
 
 ## Da sapere

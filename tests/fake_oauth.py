@@ -25,6 +25,7 @@ class FakeOAuth:
         cimd: Whether the metadata says client ID metadata documents are accepted.
         pkce: Whether S256 is advertised.
         fail_token: Make the token endpoint refuse every request.
+        require_secret: When set, the token endpoint refuses a request that does not carry this ``client_secret``.
         access_tokens: Valid access tokens.
         authorize_queries: Query parameters of every authorize request.
         token_forms: Form of every token request.
@@ -34,6 +35,7 @@ class FakeOAuth:
     cimd: bool = True
     pkce: bool = True
     fail_token: bool = False
+    require_secret: str = ""
     access_tokens: set[str] = field(default_factory=set)
     authorize_queries: list[dict[str, str]] = field(default_factory=list)
     token_forms: list[dict[str, str]] = field(default_factory=list)
@@ -77,6 +79,8 @@ class FakeOAuth:
         async def token(request: Request) -> Response:
             form = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
             self.token_forms.append(form)
+            if self.require_secret and form.get("client_secret") != self.require_secret:
+                return JSONResponse({"error": "invalid_client", "error_description": "client_secret is missing"}, status_code=401)
             if self.fail_token:
                 return JSONResponse({"error": "invalid_grant", "error_description": "refused on purpose"}, status_code=400)
             if form.get("grant_type") == "authorization_code":

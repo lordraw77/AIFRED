@@ -2,9 +2,13 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-29
+
+### Added
+- **Connectors.** A new page with ready-made MCP servers of products, set up in a few steps; the first is **Gmail** (Google's own Gmail MCP server). Each card lists the steps to take at the product, the redirect address to register, the client id and secret, and the permissions to ask for (reading and drafts are on by default; nothing offered can send or delete mail), then *Authorize*. The tools appear as the toolset `mcp:gmail` with their own switches. Under it, the OAuth client of a server (id, secret, scope) is kept encrypted in the vault, the secret goes to the token endpoint in the code exchange and in refreshes, and for Google the sign-in asks for offline access so that a refresh token is issued. API `/api/connectors`, a Connectors section in the guide.
 
 ### Fixed
+- **Status dots line up with their text.** The bullet sat below the middle of the line.
 - **Status dots with text.** On the System page and the Admin tables, the text next to a status dot (Telegram, the knowledge base, MCP servers, the secrets backend) overlapped the line below. A dot now only gets its fixed box when it is empty.
 
 ## [0.6.2] - 2026-10-29
