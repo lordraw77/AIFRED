@@ -17,21 +17,21 @@ export default {
 
     function draw() {
       clear(body);
-      const rows = [];
-      for (const ts of data.toolsets) {
-        rows.push(h("tr", { class: "row-hover" },
-          h("td", {}, h("button", { class: "btn btn-sm", type: "button", "aria-expanded": String(open.has(ts.name)), onclick: () => { open.has(ts.name) ? open.delete(ts.name) : open.add(ts.name); draw(); } }, ts.name), " ", h("span", { class: "muted" }, `${ts.tools.length} tools`)),
-          ...data.gateways.map((g) => h("td", {}, h("button", {
+      const cards = data.toolsets.map((ts) => {
+        const isOpen = open.has(ts.name);
+        return h("div", { class: "tool-card" },
+          h("div", { class: "tool-card-head" },
+            h("button", { class: "btn btn-sm", type: "button", "aria-expanded": String(isOpen), onclick: () => { isOpen ? open.delete(ts.name) : open.add(ts.name); draw(); } }, ts.name),
+            h("span", { class: "muted" }, `${ts.tools.length} tools`),
+            h("span", { class: "mono muted grow" }, `${number(ts.calls)} calls`)),
+          h("div", { class: "tool-card-gw" }, data.gateways.map((g) => h("button", {
             class: "switch-btn", type: "button", role: "switch", "aria-checked": String(Boolean(ts.enabled[g])), "aria-label": `${ts.name} for ${g}`, title: `Turn ${ts.name} ${ts.enabled[g] ? "off" : "on"} for ${g}`,
             onclick: async () => { if (await attempt(() => put(`/api/toolsets/${encodeURIComponent(ts.name).replace(/%3A/gi, ":")}`, { gateways: [g], on: !ts.enabled[g] }))) { data = await get("/api/tools"); draw(); } },
-          }, h("span", { class: `switch${ts.enabled[g] ? " on" : ""}` }), " ", h("span", { class: "muted mono" }, ts.enabled[g] ? "on" : "off")))),
-          h("td", { class: "mono" }, number(ts.calls))));
-        if (open.has(ts.name)) {
-          rows.push(h("tr", {}, h("td", { colspan: String(data.gateways.length + 2) }, ts.tools.map((t) => h("div", { class: "row" },
-            h("span", { class: "mono" }, t.name), t.restricted_ok ? badge("open bot ok") : null, !t.available ? badge("not available now", "warn") : null, h("span", { class: "muted" }, t.description), h("span", { class: "mono" }, `${t.calls} calls`))))));
-        }
-      }
-      body.append(panel("Toolsets", "tools", data.toolsets.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Toolset", ...data.gateways, "Calls"].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : empty("No tool registered.")));
+          }, h("span", { class: "mono" }, g), " ", h("span", { class: `switch${ts.enabled[g] ? " on" : ""}` }), " ", h("span", { class: "muted mono" }, ts.enabled[g] ? "on" : "off")))),
+          isOpen ? h("div", { class: "tool-detail" }, ts.tools.map((t) => h("div", { class: "row" },
+            h("span", { class: "mono" }, t.name), t.restricted_ok ? badge("open bot ok") : null, !t.available ? badge("not available now", "warn") : null, h("span", { class: "muted" }, t.description), h("span", { class: "mono" }, `${t.calls} calls`)))) : null);
+      });
+      body.append(panel("Toolsets", "tools", data.toolsets.length ? h("div", { class: "tool-cards" }, cards) : empty("No tool registered.")));
     }
     // Instructions: what each MCP server, tool group and tool is for ------------------------------------
 

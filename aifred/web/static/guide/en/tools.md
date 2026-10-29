@@ -2,14 +2,14 @@
 
 Which tools the assistant may use on each gateway, how often they were used, and what each group of tools is *for*.
 
-![The toolset matrix](/static/guide/img/tools-1-matrix.png)
+![The toolset cards](/static/guide/img/tools-1-matrix.png)
 
-## The matrix
+## The toolset cards
 
-- **One row per toolset**, with the number of tools in it. Click the name to list its tools: each with its description, a badge `open bot ok` if it may be used by the open Telegram bot, `not available now` when it needs something that is not set, and how many calls it had since the server started.
-- **One column per gateway**: *CLI*, *WEB* (this dashboard's chat), *API*, *TELEGRAM* and *CRON* (scheduled tasks).
+- **One card per toolset**, with its name, the number of tools in it and its calls since the server started. Click the name to list its tools: each with its description, a badge `open bot ok` if it may be used by the open Telegram bot, and `not available now` when it needs something that is not set.
+- **One switch per gateway** on the card: *CLI*, *WEB* (this dashboard's chat), *API*, *TELEGRAM* and *CRON* (scheduled tasks).
 - **Click a switch** to turn a toolset on or off for that gateway. The lists on the [Config](#/guide?s=config) page are updated for you. A gateway that had no list of its own gets a copy of the shared one with your change, so the other gateways do not move.
-- The **Calls** column counts uses since the server started.
+- The calls on the right of each card count uses since the server started.
 
 ### The toolsets
 `memory` (notes and profile), `skills`, `search` (search the past conversations) and `web` (web search and page fetch), `file` (read and write in the workspace), `terminal` (shell commands; off by default and handle with care), `knowledge` (your documents), `library` (answers you saved: `library_search`, `library_get`, `library_save`), `cron` (scheduled tasks), `agents` (delegate to sub-agents) and one `mcp:<server>` for each MCP server.

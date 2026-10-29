@@ -1,5 +1,5 @@
 // Sessions: overview of the platforms and recent conversations, and full-text history search (spec 10.5).
-import { ago, attempt, badge, button, clear, dangerButton, del, empty, field, get, h, icon, number, panel, put, skeleton, store } from "../core.js";
+import { ago, attempt, badge, button, clear, dangerButton, del, disclosure, empty, field, get, h, icon, number, panel, put, skeleton, store } from "../core.js";
 import { marked } from "../md.js";
 
 export function exportMarkdown(id, messages) {
@@ -24,6 +24,7 @@ export default {
     let view = store("sessions.view") === "history" ? "history" : "overview";
     let source = "";
     let query = "";
+    const openHits = new Set();   // search hits whose text is open, kept across redraws
     const body = h("div", {});
     root.append(skeleton(4));
 
@@ -86,8 +87,10 @@ export default {
         const rows = await attempt(() => get(`/api/search?q=${encodeURIComponent(query)}&limit=50${src ? `&source=${encodeURIComponent(src)}` : ""}`)) || [];
         if (!rows.length) results.append(empty("Nothing found."));
         for (const r of rows) {
-          results.append(h("div", { class: "srow row-hover" }, h("div", { class: "main-col", role: "link", tabindex: "0", onclick: () => { location.hash = `#/chat?s=${encodeURIComponent(r.session_id)}`; } },
-            h("div", { class: "title" }, r.title || r.session_id), h("div", { class: "mono muted" }, `${r.source} · ${r.role} · ${ago(r.ts)}`), h("div", {}, marked(r.snippet)))));
+          const key = `${r.session_id}:${r.ts}:${r.role}`;
+          results.append(disclosure(key, openHits,
+            [h("span", { class: "disc-title" }, r.title || r.session_id), h("span", { class: "mono muted" }, `${r.source} · ${r.role} · ${ago(r.ts)}`)],
+            () => [h("div", {}, marked(r.snippet)), button("Open conversation", () => { location.hash = `#/chat?s=${encodeURIComponent(r.session_id)}`; }, { small: true })]));
         }
       };
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });

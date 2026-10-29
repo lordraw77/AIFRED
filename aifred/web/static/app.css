@@ -282,3 +282,26 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .save-form { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); background: var(--surface-2); }
 .save-form .row > input { flex: 1 1 12em; }
 .msg-actions { margin-top: 6px; }
+
+/* Expandable history rows */
+.disc { border-bottom: 1px solid var(--line); min-width: 0; }
+.disc:last-child { border-bottom: 0; }
+.disc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding: 8px 4px; border: 0; background: none; text-align: left; cursor: pointer; }
+.disc-head:hover { background: var(--surface-2); }
+.disc-head .caret { flex: none; width: 1em; font: 12px var(--font-mono); color: var(--muted); }
+.disc-preview { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
+.disc-body { display: grid; gap: 8px; min-width: 0; padding: 4px 4px 14px 25px; }
+.disc-body[hidden] { display: none; }
+.disc-body .pre { max-height: 480px; overflow: auto; }
+
+/* Toolset cards (Tools page) */
+.tool-cards { display: grid; min-width: 0; }
+.tool-card { padding: 10px 4px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; min-width: 0; }
+.tool-card:last-child { border-bottom: 0; }
+.tool-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.tool-card-head .grow { text-align: right; }
+.tool-card-gw { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.tool-card-gw .switch-btn { display: inline-flex; align-items: center; gap: 6px; }
+.tool-detail { display: grid; gap: 6px; padding-top: 4px; }
+.tool-detail .row { align-items: baseline; }
+.disc-title { font-size: 15px; font-family: var(--font-display); overflow-wrap: anywhere; flex: 1 1 14em; min-width: 0; }

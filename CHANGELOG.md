@@ -4,6 +4,13 @@ All notable changes to AIFRED. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-29
+
+### Changed
+- **History lists open in place.** The run histories of schedules, sub-agents and the knowledge retrieval evaluations, and the hits of the Sessions history search, are lists: each row shows its status or title and time, and a click shows the output, the error, the snippet or the session.
+- **Toolset cards.** The Tools page shows one card per toolset (name, number of tools, calls, a switch per gateway) instead of a table with a column per gateway, so it fits a phone.
+- **Phone layout.** The dashboard fits a 390 px screen without sideways scrolling on every page (checked from phone to tablet width).
+
 ## [0.6.0] - 2026-10-28
 
 ### Added
