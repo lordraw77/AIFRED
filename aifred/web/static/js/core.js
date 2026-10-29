@@ -176,6 +176,24 @@ export function badge(text, kind = "") { return h("span", { class: `tag ${kind}`
 
 export function empty(text, action) { return h("div", { class: "empty" }, h("p", {}, text), action); }
 
+/** One row of a history: the head is a button that opens the body in place. `open` is a Set the page keeps, so a redraw keeps the row open. */
+export function disclosure(key, open, head, body) {
+  const panel = h("div", { class: "disc-body", hidden: !open.has(key) });
+  const fill = () => { for (const node of [body()].flat(Infinity)) if (node) panel.append(node); };
+  const caret = h("span", { class: "caret", "aria-hidden": "true" }, open.has(key) ? "▾" : "▸");
+  const toggle = h("button", { class: "disc-head", type: "button", "aria-expanded": String(open.has(key)) }, caret, head);
+  if (open.has(key)) fill();
+  toggle.addEventListener("click", () => {
+    const now = !open.has(key);
+    if (now) open.add(key); else open.delete(key);
+    if (now && !panel.childElementCount) fill();
+    panel.hidden = !now;
+    caret.textContent = now ? "▾" : "▸";
+    toggle.setAttribute("aria-expanded", String(now));
+  });
+  return h("div", { class: "disc" }, toggle, panel);
+}
+
 export function skeleton(lines = 3) { return h("div", { class: "skeleton", "aria-hidden": "true" }, Array.from({ length: lines }, () => h("div", { class: "skeleton-line" }))); }
 
 // Formatting ---------------------------------------------------------------------------------------

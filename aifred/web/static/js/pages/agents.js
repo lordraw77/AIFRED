@@ -2,7 +2,7 @@
 import { saveButton } from "../libsave.js";
 import { toolsetSwitches } from "../toolsets.js";
 import { assistButtons } from "../assist.js";
-import { attempt, badge, busy, button, clear, dangerButton, del, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
+import { attempt, badge, busy, button, clear, dangerButton, del, disclosure, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
 
 const STATUS = { ok: "ok", error: "err", running: "warn" };
 
@@ -11,6 +11,7 @@ export default {
     let editing = null;      // agent name being edited, "" for a new one
     let opened = null;       // agent whose history is open
     let testing = null;      // agent with the test box open
+    const openRuns = new Set();   // runs whose details are open, kept across redraws
     const body = h("div", {});
     root.append(body);
 
@@ -66,12 +67,14 @@ export default {
       clear(into);
       if (!runs.length) into.append(h("div", { class: "hint" }, "No run yet."));
       for (const r of runs) {
-        into.append(h("div", { class: "item" },
-          h("div", { class: "item-head" }, badge(r.status, STATUS[r.status] || ""), h("span", { class: "muted" }, ago(r.started)), r.tokens ? badge(`${r.tokens} tokens`) : null, h("span", { class: "mono muted" }, r.session_id)),
-          h("div", { class: "hint" }, `task: ${r.task.slice(0, 300)}`),
-          r.error ? h("div", { class: "notice err" }, r.error) : null,
-          r.output ? h("div", { class: "pre" }, r.output) : null,
-          r.output && r.status === "ok" ? saveButton(() => ({ content: r.output, prompt: r.task, source: "agent", sourceRef: r.session_id })) : null));
+        const key = `${name}:${r.started}:${r.session_id}`;
+        into.append(disclosure(key, openRuns,
+          [badge(r.status, STATUS[r.status] || ""), h("span", { class: "muted" }, ago(r.started)), r.tokens ? badge(`${r.tokens} tokens`) : null, h("span", { class: "disc-preview" }, (r.error || r.output || r.task).split("\n")[0].slice(0, 160))],
+          () => [h("div", { class: "hint" }, `task: ${r.task.slice(0, 300)}`),
+            r.error ? h("div", { class: "notice err" }, r.error) : null,
+            r.output ? h("div", { class: "pre" }, r.output) : null,
+            h("div", { class: "mono muted" }, r.session_id),
+            r.output && r.status === "ok" ? saveButton(() => ({ content: r.output, prompt: r.task, source: "agent", sourceRef: r.session_id })) : null]));
       }
     }
 

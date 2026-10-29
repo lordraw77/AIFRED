@@ -242,6 +242,7 @@ async def test_the_gateway_is_running_as_soon_as_the_token_works(bot: TelegramGa
     tg.hold = 6.0  # the first getUpdates stays open like a real long poll
     await bot.start()
     await until(lambda: bot.status()["state"] == "running", seconds=3)  # long before that poll returns
+    await until(lambda: tg.offsets, seconds=3)  # the request itself may reach the fake server a moment later
     assert bot.status()["bot"] == "aifred_bot" and tg.offsets == [0]
 
 

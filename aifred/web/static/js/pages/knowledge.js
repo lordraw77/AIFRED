@@ -1,5 +1,5 @@
 // Knowledge: collections, documents with state, upload, URLs, scan, re-index and a test search that shows how each hit was found (spec 9.4).
-import { ago, attempt, badge, bytes, button, busy, clear, dangerButton, del, empty, field, get, h, number, panel, post, put, skeleton, state, toast } from "../core.js";
+import { ago, attempt, badge, bytes, button, busy, clear, dangerButton, del, disclosure, empty, field, get, h, number, panel, post, put, skeleton, state, toast } from "../core.js";
 
 const STATUS_KIND = { ready: "ok", queued: "", indexing: "warn", waiting: "warn", partial: "warn", error: "err" };
 const ACCEPT = ".md,.txt,.rst,.html,.json,.csv,.yaml,.yml,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.jpg,.jpeg,.png,.webp";
@@ -120,6 +120,7 @@ export default {
     function qualityPanel(collections, docs) {
       const box = h("div", { class: "stack" });
       const list = h("div", {}), results = h("div", {}), history = h("div", {}), suggestions = h("div", {});
+      const openRuns = new Set();   // evaluation rows whose details are open, kept across redraws
       const question = h("input", { type: "text", placeholder: "A question the documents should answer", maxlength: "300", "aria-label": "Question" });
       const source = h("input", { type: "text", placeholder: "Which document (name or part of it)", maxlength: "300", list: "golden-sources", "aria-label": "Expected document" });
       const phrase = h("input", { type: "text", placeholder: "Optional: a phrase the passage must contain", maxlength: "200", "aria-label": "Expected phrase" });
@@ -143,9 +144,15 @@ export default {
         clear(history);
         if (!rows.length) return;
         const rank = (r, i) => { const before = rows.slice(i + 1).find((x) => x.variant === r.variant && x.k === r.k); return before ? r.recall - before.recall : null; };
-        history.append(h("div", { class: "label" }, "Earlier runs"), h("table", {}, h("thead", {}, h("tr", {}, ["When", "Label", "Search", "Counted", "Recall", "MRR", "Questions"].map((x) => h("th", {}, x)))),
-          h("tbody", {}, rows.slice(0, 16).map((r, i) => { const d = rank(r, i); return h("tr", {}, h("td", {}, ago(r.ts)), h("td", {}, r.label || "–"), h("td", { class: "mono" }, r.variant), h("td", {}, `top ${r.k}`),
-            h("td", { class: "mono" }, pct(r.recall), d === null || d === 0 ? "" : h("span", { class: d > 0 ? "good" : "bad" }, ` ${d > 0 ? "▲" : "▼"}${Math.abs(Math.round(d * 100))}`)), h("td", { class: "mono" }, r.mrr.toFixed(2)), h("td", {}, String(r.total))); }))));
+        history.append(h("div", { class: "label" }, "Earlier runs"), ...rows.slice(0, 16).map((r, i) => {
+          const d = rank(r, i);
+          const key = `${r.ts}:${r.variant}:${r.k}`;
+          return disclosure(key, openRuns,
+            [h("span", { class: "muted" }, ago(r.ts)), h("span", {}, r.label || "–"), h("span", { class: "mono" }, r.variant), h("span", { class: "mono" }, `top ${r.k}`),
+              h("span", { class: "mono" }, pct(r.recall), d === null || d === 0 ? "" : h("span", { class: d > 0 ? "good" : "bad" }, ` ${d > 0 ? "▲" : "▼"}${Math.abs(Math.round(d * 100))}`)), h("span", { class: "mono" }, `MRR ${r.mrr.toFixed(2)}`)],
+            () => [h("div", { class: "hint" }, `${r.total} questions`),
+              r.misses.length ? h("div", {}, h("span", { class: "label" }, "Missed"), h("div", { class: "pre" }, r.misses.join("\n"))) : h("div", { class: "hint" }, "Nothing missed.")]);
+        }));
       };
       const add = button("Add question", async () => {
         if (!question.value.trim()) return;
