@@ -2,7 +2,7 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
-## [Unreleased]
+## [0.6.2] - 2026-10-29
 
 ### Fixed
 - **Connected platforms.** The platform names on the Sessions overview overlapped their "last update" text; the status dot no longer holds the name.
