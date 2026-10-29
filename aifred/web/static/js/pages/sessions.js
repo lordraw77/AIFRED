@@ -51,7 +51,7 @@ export default {
     }
 
     function platformRow(name, up, last, note) {
-      return h("div", { class: "row" }, h("span", { class: `dot ${up ? "ok" : "off"}` }, name), h("span", { class: "muted mono" }, `last update: ${last ? ago(last) : "never"}`), note && h("span", { class: "hint" }, note));
+      return h("div", { class: "row" }, h("span", { class: `dot ${up ? "ok" : "off"}`, "aria-hidden": "true" }), h("span", { class: "mono" }, name), h("span", { class: "muted mono" }, `last update: ${last ? ago(last) : "never"}`), note && h("span", { class: "hint" }, note));
     }
 
     function overview(sessions, all, status) {
