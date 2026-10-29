@@ -30,6 +30,7 @@ AIFRED è un assistente personale che gira sul tuo hardware. Ci parli dalla dash
 | **Memory** | Appunti brevi che l'assistente conserva tra una conversazione e l'altra (`MEMORY.md`) e su di te (`USER.md`). |
 | **Library** | Risposte e risultati che hai scelto di conservare (una ricetta, una checklist); l'assistente li rilegge quando una richiesta corrisponde. |
 | **Skill** | Una procedura salvata che l'assistente può caricare quando un compito la richiede. |
+| **Connector** | Un server MCP già pronto di un prodotto (prima Gmail) con configurazione e accesso guidati; vedi [Connectors](#/guide?s=connectors). |
 | **MCP server** | Un programma esterno che offre altri strumenti (per esempio i tuoi host Proxmox o Linux). |
 | **Approval** | Con `WRITE_APPROVAL` attivo, ciò che l'assistente vuole salvare o pianificare aspetta il tuo sì in [Journey](#/guide?s=journey). |
 

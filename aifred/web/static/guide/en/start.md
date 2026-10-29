@@ -31,6 +31,7 @@ AIFRED is a personal assistant that runs on your own hardware. You talk to it fr
 | **Library** | Answers and results you chose to keep (a recipe, a checklist); the assistant reads them back when a request matches. |
 | **Skill** | A saved procedure the assistant can load when a task matches. |
 | **MCP server** | An external program that offers more tools (for example your Proxmox or Linux hosts). |
+| **Connector** | A ready-made MCP server of a product (Gmail first) with a guided set-up and sign-in; see [Connectors](#/guide?s=connectors). |
 | **Approval** | With `WRITE_APPROVAL` on, what the assistant wants to save or schedule waits for your yes in [Journey](#/guide?s=journey). |
 
 ## Moving around

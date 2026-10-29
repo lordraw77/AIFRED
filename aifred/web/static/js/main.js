@@ -12,6 +12,7 @@ const PAGES = [
   { id: "agents", label: "Agents", icon: "models", load: () => import("./pages/agents.js") },
   { id: "tools", label: "Tools", icon: "tools", load: () => import("./pages/tools.js") },
   { id: "mcp", label: "MCP", icon: "mcp", load: () => import("./pages/mcp.js") },
+  { id: "connectors", label: "Connectors", icon: "connectors", load: () => import("./pages/connectors.js") },
   { id: "models", label: "Models", icon: "models", load: () => import("./pages/models.js") },
   { id: "journey", label: "Journey", icon: "journey", key: "j", load: () => import("./pages/journey.js") },
   { id: "logs", label: "Logs", icon: "logs", load: () => import("./pages/logs.js") },

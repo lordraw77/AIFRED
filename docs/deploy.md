@@ -65,10 +65,10 @@ Add servers on the dashboard (MCP page, phase 6) or with `PUT /api/mcp/servers/<
 
 ## Using the published image
 
-The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.6.2` and `latest`, linux/amd64; `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
+The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.7.0` and `latest`, linux/amd64; `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
 
 ```bash
-echo 'AIFRED_IMAGE=lordraw/aifred' >> .env     # and AIFRED_VERSION=0.6.2 to pin a version
+echo 'AIFRED_IMAGE=lordraw/aifred' >> .env     # and AIFRED_VERSION=0.7.0 to pin a version
 AIFRED_PULL=1 make docker/run                  # pulls the image instead of building it
 ```
 
@@ -147,7 +147,7 @@ Read by **docker compose** and the scripts from `.env` (or the shell; the shell 
 | `AIFRED_OPENBAO_ADDR`, `AIFRED_OPENBAO_MOUNT`, `AIFRED_OPENBAO_KEY` | `http://openbao:8200`, `transit`, `aifred` | Where and how AIFRED reaches OpenBao |
 | `AIFRED_BIND`, `AIFRED_PORT` | `127.0.0.1`, `8700` | Interface and port published on the host |
 | `AIFRED_MEM_LIMIT` | `1g` | Memory limit of the AIFRED container. The knowledge base caches vectors in memory (`RAG_CACHE_MB`, 512 MB by default; 307 MB for 100,000 chunks of 768 dimensions) and the document parsers run inside the same limit. Raise this together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS` |
-| `AIFRED_VERSION` | `0.6.2` | Image tag |
+| `AIFRED_VERSION` | `0.7.0` | Image tag |
 | `OPENBAO_VERSION`, `SEARXNG_VERSION` | `2.7.1`, `2026.10.24-ef0ec03da` | Image tags of the other services |
 | `SEARXNG_SECRET` | generated | SearXNG server secret (profile `search`) |
 | `AIFRED_SETUP_ADMIN_CREATED` | set by `setup.sh` | Marker that the admin exists; do not edit |
@@ -185,7 +185,7 @@ Passed into the **container**: exactly the `AIFRED_*` variables listed in `docke
 ```bash
 docker create --name aifred-live --entrypoint sh --user 10001 -e HOME=/tmp --tmpfs /tmp:size=128m,mode=1777 \
   -e AIFRED_TEST_OPENBAO_ADDR=http://openbao:8200 -e AIFRED_TEST_OPENBAO_ROLE_ID -e AIFRED_TEST_OPENBAO_SECRET_ID \
-  -v "$PWD/tests:/t/tests:ro" -v "$PWD/aifred:/t/aifred:ro" -w /t aifred:0.6.2 \
+  -v "$PWD/tests:/t/tests:ro" -v "$PWD/aifred:/t/aifred:ro" -w /t aifred:0.7.0 \
   -c 'pip install -q --target /tmp/pt pytest==9.1.1 && PYTHONPATH=/t:/tmp/pt python -m pytest -q -p no:cacheprovider tests/test_openbao_live.py'
 docker network connect aifred_vault aifred-live && docker start -a aifred-live; docker rm aifred-live
 ```

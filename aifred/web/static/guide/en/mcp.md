@@ -45,6 +45,8 @@ Instead of a URL, a server can be a **command** that AIFRED starts and talks to 
 
 Some servers want you to sign in with a provider in the browser. Tick **Sign in with OAuth**, save, and press **Authorize** on the card: the provider opens in a new tab, you accept, and AIFRED stores the tokens encrypted and refreshes them. The card shows *OAuth: signed in*; **Forget the sign-in** removes the tokens.
 
+For a product that has a ready-made entry (Gmail), the [Connectors](#/guide?s=connectors) page does this for you, including the client id, the client secret and the permissions that the provider asks for.
+
 You need a client identity: either a client id registered by hand with the provider (`MCP_OAUTH_CLIENT_ID`), or, if AIFRED can be reached from the internet over https, its public address in `MCP_OAUTH_PUBLIC_URL` (AIFRED then serves the client metadata document the provider fetches). A home network that is not reachable from outside needs the first.
 
 ## Good to know
