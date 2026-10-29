@@ -59,10 +59,21 @@ export default {
           if (saved) draw();
         } finally { save.disabled = false; }
       };
+      const paste = c.flow === "paste";
       const authorize = c.configured ? button(c.authorized ? "Sign in again" : "Authorize", async () => {
-        const r = await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(c.id)}/oauth/start`));
-        if (r) { window.open(r.url, "_blank", "noopener"); toast("Finish signing in in the new tab; this page updates by itself"); waitForSignIn(c.id); }
+        const r = await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(c.id)}/oauth/start`, { manual: paste }));
+        if (!r) return;
+        window.open(r.url, "_blank", "noopener");
+        if (paste) toast("Accept in the new tab, then copy the address of the error page it ends on into the box below");
+        else { toast("Finish signing in in the new tab; this page updates by itself"); waitForSignIn(c.id); }
       }, { small: true, primary: !c.authorized }) : null;
+      const answer = h("input", { type: "text", placeholder: "http://localhost:8700/api/mcp/oauth/callback?state=…&code=…", "aria-label": `${c.title} sign-in address`, autocomplete: "off", spellcheck: "false" });
+      const finish = button("Finish", async () => {
+        if (await attempt(() => post("/api/mcp/oauth/complete", { url: answer.value }), "Signed in")) draw();
+      }, { small: true, primary: true });
+      const pasteRow = c.configured && paste ? h("div", { class: "stack" },
+        h("div", { class: "label" }, "After accepting: the address of the page the browser ends on"),
+        h("div", { class: "row" }, answer, finish)) : null;
       const forget = c.authorized ? button("Forget the sign-in", async () => { if (await attempt(() => post(`/api/mcp/servers/${encodeURIComponent(c.id)}/oauth/forget`), "Signed out")) draw(); }, { small: true }) : null;
       const remove = c.configured ? dangerButton("Remove", async () => { if (await attempt(() => del(`/api/connectors/${encodeURIComponent(c.id)}`), `${c.title} removed`)) draw(); }) : null;
 
@@ -77,11 +88,12 @@ export default {
         c.error ? h("div", { class: "notice err" }, c.error) : null,
         steps,
         h("div", { class: "label" }, "Redirect address to register"), redirect,
-        c.redirect_warning ? h("div", { class: "notice warn" }, c.redirect_warning) : null,
+        c.redirect_note ? h("div", { class: "notice warn" }, c.redirect_note) : null,
         field("Client id", clientId), field("Client secret", secret),
         h("div", { class: "label" }, "What the assistant may do"), h("div", { class: "stack perms" }, boxes),
         c.notes.map((n) => h("div", { class: "hint" }, n)),
         h("div", { class: "row" }, save),
+        pasteRow,
         c.configured ? h("div", { class: "stack" }, h("div", { class: "label" }, `Let the assistant use ${c.title} (its tools are the toolset mcp:${c.id})`), toolsetSwitches(`mcp:${c.id}`)) : null);
     }
 

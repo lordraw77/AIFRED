@@ -42,6 +42,7 @@ REFRESH_MARGIN = 60.0
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 CIMD_PATH = "/api/mcp/oauth/client.json"
 CALLBACK_PATH = "/api/mcp/oauth/callback"
+MANUAL_REDIRECT = "http://localhost:8700" + CALLBACK_PATH   # an address every provider accepts; the browser cannot open it, so the admin copies it back
 
 
 class OAuthError(Exception):
@@ -298,7 +299,7 @@ class OAuthService:
         with self._lock:
             pending = self._pending.pop(state, None)
         if pending is None or self._clock() - pending.created > PENDING_TTL:
-            raise OAuthError("this sign-in is unknown or has expired; start again from the MCP page")
+            raise OAuthError("this sign-in is unknown or has expired; press Authorize again")
         tokens = self._token_request(pending.token_endpoint, self._with_secret(pending.server, {
             "grant_type": "authorization_code", "code": code, "redirect_uri": pending.redirect_uri, "client_id": pending.client_id,
             "code_verifier": pending.verifier, "resource": pending.resource,
@@ -381,3 +382,20 @@ class OAuthService:
 def callback_params(url: str) -> dict[str, str]:
     """Query parameters of a callback address (test helper and for clarity at call sites)."""
     return {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+
+
+def pasted_answer(text: str) -> tuple[str, str]:
+    """The ``state`` and ``code`` in the address the admin copied from the browser after accepting.
+
+    Raises:
+        OAuthError: If the text is not such an address, or it carries the provider's refusal.
+    """
+    text = text.strip()
+    if not text or len(text) > 4096:
+        raise OAuthError("paste the address the browser ended up on after you accepted")
+    params = callback_params(text if "?" in text else f"?{text}")
+    if params.get("error"):
+        raise OAuthError(f"the authorization server said: {params.get('error_description') or params['error']}")
+    if not params.get("state") or not params.get("code"):
+        raise OAuthError("that address has no code in it: copy the whole address from the browser's address bar")
+    return params["state"], params["code"]

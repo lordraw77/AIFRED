@@ -11,7 +11,7 @@ Ready-made MCP servers of products you use, set up in a few steps. The first one
 - **Redirect address to register**: the address the product sends you back to after you accept. Copy it exactly into the app you register at the product. A warning appears when the product will not accept it (see *The redirect address* below).
 - **Client id** and **Client secret**: from the app you registered. The secret is stored encrypted and is never shown again; leave the field empty on a later *Save* to keep it.
 - **What the assistant may do**: the permissions to ask for. Each one is a real capability of the assistant, so keep only what you need.
-- **Save**, then **Authorize** (or *Sign in again*): the product opens in a new tab, you accept, and this page updates by itself. **Forget the sign-in** drops the tokens; **Remove** deletes the connector, its tokens and its client.
+- **Save**, then **Authorize** (or *Sign in again*): the product opens in a new tab, you accept, and this page updates by itself. When the dashboard is open over plain http by the machine's address, a box *After accepting: the address of the page the browser ends on* appears and you finish with **Finish** (see *The redirect address*). **Forget the sign-in** drops the tokens; **Remove** deletes the connector, its tokens and its client.
 - **Let the assistant use…**: the switches that turn the connector's tools on for *CLI*, *Web*, *API*, *Telegram* and *Scheduled*. Without them the assistant does not see the tools.
 
 ![A connector saved and waiting for the sign-in](/static/guide/img/connectors-2-saved.png)
@@ -29,7 +29,10 @@ Ready-made MCP servers of products you use, set up in a few steps. The first one
 **What it can do.** Google's Gmail server has tools to search threads, read a thread, list labels and drafts, create a draft and label or unlabel messages. It has **no tool that sends mail or deletes it**. *Read mail* and *Write drafts* are on by default: the assistant can search and read, and prepare drafts that you send yourself from Gmail. *Organise* adds labelling (Google's scope for it also allows moving mail to the trash). Turn on only what you need.
 
 ### The redirect address
-Google accepts a redirect address only if it is `https`, or `http` on `localhost`. If you open the dashboard by the address of the machine (for example `http://192.168.0.5:8700`) the card shows a warning. Either open the dashboard as `http://localhost:8700` through an SSH tunnel (`ssh -L 8700:localhost:8700 your-host`) and do the sign-in from there, or serve AIFRED over https and set `MCP_OAUTH_PUBLIC_URL` on the [Config](#/guide?s=config) page: the address on the card then follows it.
+Google accepts a redirect address only if it is `https`, or `http` on `localhost`. AIFRED picks the way that fits how you opened the dashboard, and the card tells you which:
+
+- **Automatic.** The dashboard is open over `https`, or as `http://localhost:…`: the card shows its own address, you register it, and the sign-in finishes by itself after you accept. To use https, serve AIFRED under a name behind your reverse proxy (for example `https://aifred.example.org`) and set `MCP_OAUTH_PUBLIC_URL` on the [Config](#/guide?s=config) page; that name only has to open in *your* browser, not from the internet.
+- **Copy the address back.** The dashboard is open by the address of the machine over plain http (for example `http://192.168.0.5:8700`): the card shows `http://localhost:8700/api/mcp/oauth/callback` instead, and that is the one to register. Press **Authorize** and accept in the Google tab. The browser then tries to open `localhost:8700`, cannot, and shows an error page: that is expected. Copy the **whole address** from the browser's address bar, paste it into the box under the form and press **Finish**. No tunnel is needed, and it works from any computer.
 
 ### Stay signed in
 Google gives an app whose publishing status is **Testing** a sign-in that expires after 7 days. Publish the app (or use an *Internal* audience in Google Workspace) so that AIFRED can renew the sign-in by itself. AIFRED asks for offline access, so a renewable sign-in is issued.
@@ -37,6 +40,7 @@ Google gives an app whose publishing status is **Testing** a sign-in that expire
 ## When it does not work
 
 - **`redirect_uri_mismatch`**: the address registered at Google is not exactly the one on the card. Copy it again.
+- **"This sign-in is unknown or has expired"** when you press *Finish*: a sign-in lasts 10 minutes and works once. Press *Authorize* again and paste the new address.
 - **"Access blocked" or "not verified"**: add your Google account as a test user under *Audience*.
 - **The token endpoint says `client_secret is missing` or `invalid_client`**: paste the secret again and press *Save*; check it belongs to the same client id.
 - **Connected but the assistant never reads mail**: the toolset is off for that gateway; use the switches on the card. The open Telegram bot never has MCP tools.

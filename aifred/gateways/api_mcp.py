@@ -9,15 +9,25 @@ import html
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from aifred.gateways.api import AdminDep, Ok, ServicesDep
 from aifred.instructions import InstructionError
 from aifred.mcp import McpConfigError
-from aifred.mcp_oauth import CALLBACK_PATH, OAuthError
+from aifred.mcp_oauth import CALLBACK_PATH, MANUAL_REDIRECT, OAuthError, pasted_answer
 from aifred.vault import VaultError
 
 router = APIRouter()
+
+
+class OAuthStartIn(BaseModel):
+    """``manual``: use the address every provider accepts and copy the answer back (see ``oauth_complete``)."""
+
+    manual: bool = False
+
+
+class OAuthCompleteIn(BaseModel):
+    url: str = Field(max_length=4096)
 
 
 class McpServerIn(BaseModel):
@@ -137,13 +147,18 @@ def _redirect_uri(request: Request, services: Any) -> str:
 
 
 @router.post("/api/mcp/servers/{name}/oauth/start")
-async def oauth_start(name: str, request: Request, _: AdminDep, services: ServicesDep) -> dict[str, str]:
-    """Begin signing in to a server: returns the address of its authorization page, to open in the browser."""
+async def oauth_start(name: str, request: Request, _: AdminDep, services: ServicesDep, body: OAuthStartIn | None = None) -> dict[str, str]:
+    """Begin signing in to a server: returns the address of its authorization page, to open in the browser.
+
+    With ``manual`` the provider is told to return to an address the browser cannot open; the admin then pastes the
+    address of the error page into ``/api/mcp/oauth/complete``.
+    """
     server = services.mcp.get(name)
     if server is None or not server.oauth:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such server, or it is not set to use OAuth")
     try:
-        url = await asyncio.to_thread(services.mcp.oauth.begin, name, server.url, _redirect_uri(request, services))
+        redirect = MANUAL_REDIRECT if body and body.manual else _redirect_uri(request, services)
+        url = await asyncio.to_thread(services.mcp.oauth.begin, name, server.url, redirect)
     except OAuthError as exc:
         raise _unprocessable(exc) from None
     return {"url": url}
@@ -168,6 +183,19 @@ async def oauth_callback(_: AdminDep, services: ServicesDep, state: str = "", co
     services.mcp_manager.reload()
     services.store.journal_add("settings", "mcp_server", f"MCP server {name!r} signed in with OAuth")
     return RedirectResponse("/#/mcp", status_code=303)
+
+
+@router.post("/api/mcp/oauth/complete")
+async def oauth_complete(body: OAuthCompleteIn, _: AdminDep, services: ServicesDep) -> dict[str, str]:
+    """Finish a sign-in begun with ``manual``: the admin pastes the address the browser ended up on."""
+    try:
+        state, code = pasted_answer(body.url)
+        name = await asyncio.to_thread(services.mcp.oauth.finish, state, code)
+    except OAuthError as exc:
+        raise _unprocessable(exc) from None
+    services.mcp_manager.reload()
+    services.store.journal_add("settings", "mcp_server", f"MCP server {name!r} signed in with OAuth")
+    return {"name": name}
 
 
 @router.post("/api/mcp/servers/{name}/oauth/forget")
