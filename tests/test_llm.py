@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from aifred.llm import (
+    _Assembler,
     ChatResult,
     Done,
     Endpoint,
@@ -219,6 +220,14 @@ async def test_missing_tool_call_id_is_generated(fake_llm: Callable[[], FakeLLM]
     fake = fake_llm().queue(ToolCall("ping", {"word": "pong"}, id=None))
     _, result = await run(endpoint(fake))
     assert result.tool_calls[0]["id"] == "call_0"
+
+
+def test_tool_call_keeps_gemini_thought_signature() -> None:
+    extra = {"google": {"thought_signature": "sig123"}}
+    asm = _Assembler()
+    asm.feed({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "c1", "extra_content": extra, "function": {"name": "web", "arguments": "{}"}}]}}]})
+    [call] = asm.result("", 0).tool_calls
+    assert call["extra_content"] == extra
 
 
 async def test_thinking_flag_is_sent(fake_llm: Callable[[], FakeLLM]) -> None:
