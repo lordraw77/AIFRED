@@ -88,6 +88,12 @@ def test_api_responses_are_not_cached(api: TestClient) -> None:
     assert "content-security-policy" not in response.headers  # only pages and assets carry it
 
 
+def test_assets_are_revalidated_so_an_update_shows_at_once(api: TestClient) -> None:
+    response = api.get("/static/js/pages/models.js")
+    assert response.headers["cache-control"] == "no-cache" and response.headers["etag"]
+    assert api.get("/static/js/pages/models.js", headers={"If-None-Match": response.headers["etag"]}).status_code == 304
+
+
 # Status
 
 

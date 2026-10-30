@@ -532,6 +532,22 @@ async def test_usage_report_counts_errors(env: Env) -> None:
     assert rows["b"]["calls"] == 1 and rows["b"]["agent"] == "tester"
 
 
+async def test_usage_overview_prices_tokens(env: Env, services: Services) -> None:
+    env.add("a")
+    pb, _ = env.add("b")
+    env.route("a", "b")
+    env.fakes["a"].queue(Status(503))
+    await env.ask(agent="tester")
+    before = {p["provider"]: p for p in env.router.usage_overview(1)["providers"]}
+    assert before["b"]["cost"] is None and before["b"]["unpriced_models"] == 1 and before["b"]["calls"] == 1
+
+    services.providers.save_models(pb.id, [{"model_id": "test-model", "price_in": 2.0, "price_out": 10.0}])
+    after = env.router.usage_overview(1)
+    b = {p["provider"]: p for p in after["providers"]}["b"]
+    expected = (b["tokens_in"] * 2.0 + b["tokens_out"] * 10.0) / 1_000_000
+    assert b["cost"] == expected and b["unpriced_models"] == 0 and after["totals"]["cost"] == expected
+
+
 def test_set_route_validation(env: Env, services: Services) -> None:
     pa, _ = env.add("a", keys=("key-one-0001",))
     pb, _ = env.add("b")

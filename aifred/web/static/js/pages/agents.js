@@ -1,7 +1,7 @@
 // Agents: named sub-agents the main agent can hand tasks to, each with its own role, model route, toolsets and limits.
 import { saveButton } from "../libsave.js";
 import { toolsetSwitches } from "../toolsets.js";
-import { assistButtons } from "../assist.js";
+import { assistButtons, draftNote, generatorBox } from "../assist.js";
 import { attempt, badge, busy, button, clear, dangerButton, del, disclosure, empty, field, get, h, panel, post, put, skeleton, ago } from "../core.js";
 
 const STATUS = { ok: "ok", error: "err", running: "warn" };
@@ -9,6 +9,8 @@ const STATUS = { ok: "ok", error: "err", running: "warn" };
 export default {
   async render(root, ctx) {
     let editing = null;      // agent name being edited, "" for a new one
+    let generating = false;  // the "describe it" box is open
+    let preset = null;       // {draft, note}: a generated draft the new-agent form starts from
     let opened = null;       // agent whose history is open
     let testing = null;      // agent with the test box open
     const openRuns = new Set();   // runs whose details are open, kept across redraws
@@ -20,10 +22,13 @@ export default {
       ctx.setCount(data.agents.length);
       clear(body);
       const head = panel("Sub-agents", "models");
-      head.querySelector(".panel-head").append(button("New agent", () => { editing = ""; draw(); }, { primary: true, small: true, iconName: "plus" }));
+      head.querySelector(".panel-head").append(button("Generate with AI", () => { generating = !generating; draw(); }, { small: true, iconName: "edit" }),
+        button("New agent", () => { editing = ""; preset = null; generating = false; draw(); }, { primary: true, small: true, iconName: "plus" }));
       const inner = head.querySelector(".panel-body");
       if (!data.agents.length && editing === null) inner.append(empty("No sub-agent yet. A sub-agent is a specialist the main assistant can hand a task to, for example a researcher for the web."));
-      if (editing === "") inner.append(form(null, data));
+      if (generating) inner.append(generatorBox({ kind: "agent", label: "What should the new agent do?", placeholder: "For example: a researcher that looks things up on the web and always reports the links it used.",
+        onDraft: (r) => { generating = false; preset = { draft: r.draft, note: draftNote(r) }; editing = ""; draw(); } }));
+      if (editing === "") inner.append(preset ? h("div", { class: "stack" }, preset.note, form(null, data, preset.draft)) : form(null, data));
       for (const a of data.agents) inner.append(editing === a.name ? form(a, data) : card(a, data));
       body.append(head, h("div", { class: "stack" }, h("div", { class: "label" }, "Let the main assistant delegate (toolset agents)"), toolsetSwitches("agents")), h("p", { class: "hint" }, "Turn delegation on for a gateway with the switches above so the main assistant can use delegate. An agent never gets more than the gateway it is called from, cannot delegate further and is never available in an open Telegram chat. You can also call one yourself with /agent <name> <task>."));
     }
@@ -78,17 +83,18 @@ export default {
       }
     }
 
-    function form(a, data) {
+    function form(a, data, draft = null) {
       const isNew = !a;
-      const name = h("input", { type: "text", value: a ? a.name : "", readonly: !isNew || null, placeholder: "sysadmin", pattern: "[a-z0-9][a-z0-9_\\-]{0,29}", maxlength: "30" });
-      const description = h("input", { type: "text", value: a ? a.description : "", maxlength: "240", placeholder: "Inspects my servers through the MCP tools. Use it for questions about hosts and services." });
-      const role = h("textarea", { rows: "5", maxlength: "4000", placeholder: "You are a careful systems administrator. Look before you act…" }, a ? a.role : "");
+      const d = a || draft;   // what the fields start from: the agent being edited, or a generated draft
+      const name = h("input", { type: "text", value: d ? d.name : "", readonly: !isNew || null, placeholder: "sysadmin", pattern: "[a-z0-9][a-z0-9_\\-]{0,29}", maxlength: "30" });
+      const description = h("input", { type: "text", value: d ? d.description : "", maxlength: "240", placeholder: "Inspects my servers through the MCP tools. Use it for questions about hosts and services." });
+      const role = h("textarea", { rows: "5", maxlength: "4000", placeholder: "You are a careful systems administrator. Look before you act…" }, d ? d.role : "");
       const route = h("select", {}, ...data.routes.map((r) => h("option", { value: r }, r)));
       route.value = a ? a.route : "default";
-      const toolsets = h("input", { type: "text", value: a ? a.toolsets.join(", ") : "web", placeholder: "web, search, mcp:linux_ssh" });
-      const skills = h("input", { type: "text", value: a ? a.skills.join(", ") : "", placeholder: "skill names, comma separated" });
+      const toolsets = h("input", { type: "text", value: d ? d.toolsets.join(", ") : "web", placeholder: "web, search, mcp:linux_ssh" });
+      const skills = h("input", { type: "text", value: d ? d.skills.join(", ") : "", placeholder: "skill names, comma separated" });
       const memory = h("select", {}, ...data.memory_modes.map((m) => h("option", { value: m }, m)));
-      memory.value = a ? a.memory : "none";
+      memory.value = d ? d.memory : "none";
       const num = (value, placeholder) => h("input", { type: "number", min: "0", value: value ?? "", placeholder });
       const rounds = num(a && a.max_iterations, String(data.defaults.max_iterations));
       const timeout = num(a && a.timeout, String(data.defaults.timeout));
@@ -100,7 +106,7 @@ export default {
         const values = { description: description.value, role: role.value, route: route.value, toolsets: list(toolsets), skills: list(skills), memory: memory.value,
           max_iterations: count(rounds), timeout: count(timeout), token_budget: count(budget) };
         const call = isNew ? () => post("/api/agents", { name: name.value.trim(), ...values }) : () => put(`/api/agents/${encodeURIComponent(a.name)}`, values);
-        if (await attempt(call, "Saved")) { editing = null; draw(); }
+        if (await attempt(call, "Saved")) { editing = null; preset = null; draw(); }
       });
       return h("div", { class: "item stack" },
         field("Name", name), field("What it is for", description, "One line the main assistant reads to decide when to hand a task over."),
@@ -111,7 +117,7 @@ export default {
         field("Skills", skills, `Preloaded into its prompt. Available: ${data.skills.join(", ") || "none yet"}.`),
         field("Memory", memory, "none: no access; read: sees your notes and profile; write: may also save (WRITE_APPROVAL applies)."),
         field("Tool rounds", rounds), field("Time limit (s)", timeout), field("Token budget", budget, "Empty means no limit."),
-        h("div", { class: "row" }, save, button("Cancel", () => { editing = null; draw(); })));
+        h("div", { class: "row" }, save, button("Cancel", () => { editing = null; preset = null; draw(); })));
     }
 
     await draw();

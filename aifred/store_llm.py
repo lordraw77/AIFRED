@@ -395,6 +395,27 @@ class LLMStoreMixin:
             (provider_id,),
         )
 
+    def usage_overview(self, since: float) -> list[dict[str, Any]]:
+        """Tokens and calls per provider and model since a time, with the model's price per million tokens."""
+        return self._query(
+            "SELECT u.provider AS provider, u.model AS model, SUM(u.outcome = 'success') AS calls, "
+            "SUM(u.outcome != 'success') AS errors, "
+            "COALESCE(SUM(CASE WHEN u.outcome = 'success' THEN u.tokens_in END), 0) AS tokens_in, "
+            "COALESCE(SUM(CASE WHEN u.outcome = 'success' THEN u.tokens_out END), 0) AS tokens_out, "
+            "m.price_in AS price_in, m.price_out AS price_out "
+            "FROM llm_usage u LEFT JOIN models m ON m.provider_id = u.provider_id AND m.model_id = u.model "
+            "WHERE u.ts >= ? GROUP BY u.provider, u.model ORDER BY u.provider, u.model",
+            (since,),
+        )
+
+    def usage_daily(self, since: float) -> list[dict[str, Any]]:
+        """Tokens per day and provider since a time (successful calls)."""
+        return self._query(
+            "SELECT date(ts, 'unixepoch') AS day, provider, SUM(tokens_in + tokens_out) AS tokens "
+            "FROM llm_usage WHERE ts >= ? AND outcome = 'success' GROUP BY day, provider ORDER BY day, provider",
+            (since,),
+        )
+
     def usage_report(self, since: float) -> list[dict[str, Any]]:
         """Daily usage grouped by provider, model and agent since a time."""
         return self._query(

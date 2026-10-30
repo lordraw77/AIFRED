@@ -726,6 +726,32 @@ class LLMRouter:
             return {"state": "cooldown", "until": health["until"], "reason": health["reason"], "last_error": health["last_error"]}
         return {"state": "healthy", "until": None, "reason": "", "last_error": health["last_error"]}
 
+    def usage_overview(self, days: int = 7) -> dict[str, Any]:
+        """Tokens, calls and cost per provider and model, and tokens per day.
+
+        The cost of a model is ``tokens_in * price_in + tokens_out * price_out`` (prices are per million tokens). A model with no
+        price set counts tokens but has no cost; a provider's cost is ``None`` until at least one of its models has a price.
+        """
+        since = self._clock() - days * 86400
+        providers: dict[str, dict[str, Any]] = {}
+        for row in self._store.usage_overview(since):
+            priced = row["price_in"] is not None or row["price_out"] is not None
+            cost = (row["tokens_in"] * (row["price_in"] or 0) + row["tokens_out"] * (row["price_out"] or 0)) / 1_000_000 if priced else None
+            entry = providers.setdefault(row["provider"], {"provider": row["provider"], "calls": 0, "errors": 0, "tokens_in": 0, "tokens_out": 0, "cost": None, "unpriced_models": 0, "models": []})
+            for key in ("calls", "errors", "tokens_in", "tokens_out"):
+                entry[key] += row[key]
+            if cost is None:
+                entry["unpriced_models"] += 1
+            else:
+                entry["cost"] = (entry["cost"] or 0) + cost
+            entry["models"].append({"model": row["model"], "calls": row["calls"], "errors": row["errors"], "tokens_in": row["tokens_in"], "tokens_out": row["tokens_out"],
+                                    "price_in": row["price_in"], "price_out": row["price_out"], "cost": cost})
+        rows = sorted(providers.values(), key=lambda p: p["tokens_in"] + p["tokens_out"], reverse=True)
+        costs = [p["cost"] for p in rows if p["cost"] is not None]
+        totals = {"calls": sum(p["calls"] for p in rows), "errors": sum(p["errors"] for p in rows), "tokens_in": sum(p["tokens_in"] for p in rows),
+                  "tokens_out": sum(p["tokens_out"] for p in rows), "cost": sum(costs) if costs else None, "unpriced_models": sum(p["unpriced_models"] for p in rows)}
+        return {"days": days, "providers": rows, "totals": totals, "daily": self._store.usage_daily(since)}
+
     def usage_report(self, days: int = 7) -> list[dict[str, Any]]:
         """Usage grouped by day, provider, model and agent."""
         return self._store.usage_report(self._clock() - days * 86400)

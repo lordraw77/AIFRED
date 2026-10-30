@@ -340,6 +340,12 @@ def reset_health(entry_id: int, _: AdminDep, services: ServicesDep) -> Ok:
     return Ok()
 
 
+@router.get("/api/usage/overview")
+def usage_overview(_: AdminDep, services: ServicesDep, days: Annotated[int, Query(ge=1, le=366)] = 7) -> dict[str, Any]:
+    """Tokens, calls and cost per provider and model, and tokens per day."""
+    return services.llm.usage_overview(days)
+
+
 @router.get("/api/usage")
 def usage(_: AdminDep, services: ServicesDep, days: Annotated[int, Query(ge=1, le=366)] = 7) -> list[dict[str, Any]]:
     """Daily token usage by provider, model and agent."""

@@ -36,6 +36,7 @@ def new_provider(admin: TestClient, fake: FakeLLM, slug: str = "lab", **kw: Any)
         ("PUT", "/api/routes/default"),
         ("GET", "/api/llm/health"),
         ("GET", "/api/usage"),
+        ("GET", "/api/usage/overview"),
     ],
 )
 def test_requires_admin(client: TestClient, method: str, path: str) -> None:
@@ -191,6 +192,12 @@ def test_health_reset_and_usage(admin: TestClient, fake_llm: Callable[[], FakeLL
     rows = admin.get("/api/usage?days=3").json()
     assert rows[0]["provider"] == "lab" and rows[0]["calls"] >= 1 and rows[0]["errors"] >= 1
     assert admin.get("/api/usage?days=0").status_code == 422
+
+    overview = admin.get("/api/usage/overview?days=3").json()
+    [lab] = [p for p in overview["providers"] if p["provider"] == "lab"]
+    assert lab["calls"] >= 1 and lab["errors"] >= 1 and lab["cost"] is None and lab["unpriced_models"] >= 1
+    assert overview["totals"]["calls"] == sum(p["calls"] for p in overview["providers"]) and overview["totals"]["cost"] is None
+    assert overview["daily"] and admin.get("/api/usage/overview?days=0").status_code == 422
 
 
 def test_write_endpoints_need_csrf(client: TestClient, fake_llm: Callable[[], FakeLLM]) -> None:
