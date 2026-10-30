@@ -7,7 +7,7 @@ Un sub-agente è uno specialista a cui l'assistente principale può affidare un 
 ## Cosa vedi
 
 - **Let the main assistant delegate (toolset agents)**: interruttori che attivano il toolset `agents` per ogni gateway. Senza di esso l'assistente non ha lo strumento `delegate`.
-- **Sub-agents** e **New agent**. La prima volta vengono creati tre agenti di partenza, *spenti*: `researcher` (web), `sysadmin` (i tuoi server, prima di tutto in sola lettura) e `writer` (testi).
+- **Sub-agents**, **Generate with AI** e **New agent**. La prima volta vengono creati tre agenti di partenza, *spenti*: `researcher` (web), `sysadmin` (i tuoi server, prima di tutto in sola lettura) e `writer` (testi).
 - **Una scheda per agente**: pallino (verde = attivo), nome, badge con la route del modello e la modalità di memoria, poi *Turn on/off*, *Test*, *History*, *Edit*, *Delete*. Sotto: a cosa serve, toolset e skill, limiti.
 - **Test**: scrivi un compito e premi *Run*; vedi la risposta, i token usati, il modello e la conversazione in cui è girato.
 - **History**: le ultime esecuzioni con stato, orario, token, compito e output.
@@ -31,6 +31,7 @@ Un sub-agente è uno specialista a cui l'assistente principale può affidare un 
 ## Come fare
 
 - **Usarne uno in chat**: attiva il toolset `agents` per *Web*, accendi un agente, poi chiedi: "chiedi al researcher di cercare…". Oppure scrivi `/agent researcher <compito>`.
+- **Generarne uno da una descrizione**: *Generate with AI*, scrivi con parole tue cosa deve fare l'agente ("un ricercatore che cerca sul web e riporta sempre i link") e premi *Generate*. Il modulo si apre già compilato (nome, a cosa serve, ruolo, toolset, skill, memoria) con una nota che dice quale modello l'ha scritto. Leggilo, cambia ciò che vuoi e premi *Save*. Finché non salvi non esiste nulla. La bozza usa solo toolset e skill che esistono, non riceve mai `agents`, `cron` o `review` e mai la memoria in *write*: se la vuoi, la imposti tu.
 - **Crearne uno tuo**: *New agent*, dagli un *What it is for* chiaro e un *Role*, scegli il minimo insieme di toolset che gli serve, premi *Test*.
 
 ## Da sapere

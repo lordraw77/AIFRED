@@ -39,6 +39,8 @@ class SecurityHeaders:
                 headers.setdefault("X-Frame-Options", "DENY")
                 if path == "/" or path.startswith("/static/"):
                     headers.setdefault("Content-Security-Policy", CSP)
+                if path.startswith("/static/"):
+                    headers.setdefault("Cache-Control", "no-cache")  # always revalidate (ETag): no stale page after an update
                 if path.startswith("/api/"):
                     headers.setdefault("Cache-Control", "no-store")
             await send(message)

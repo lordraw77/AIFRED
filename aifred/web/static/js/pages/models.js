@@ -167,6 +167,18 @@ export default {
       return item;
     }
 
+    // The price per million tokens turns the Usage page's token counts into a cost; empty means no price (local models, free tiers).
+    function priceInputs(p, m) {
+      const make = (placeholder, value) => h("input", { class: "price", type: "number", min: "0", step: "any", placeholder, "aria-label": `Price ${placeholder} per million tokens`, value: value ?? "" });
+      const pin = make("in", m.price_in); const pout = make("out", m.price_out);
+      const save = async () => {
+        const num = (el) => (el.value.trim() === "" ? null : Number(el.value));
+        if (await attempt(() => put(`/api/providers/${p.id}/models`, [{ model_id: m.model_id, price_in: num(pin), price_out: num(pout) }]), "Price saved")) redraw();
+      };
+      pin.addEventListener("change", save); pout.addEventListener("change", save);
+      return [pin, pout];
+    }
+
     function modelsTable(p, models) {
       const rows = models.map((m) => {
         const t = button(m.kind === "embedding" ? "Test embedding" : "Test", null, { small: true });
@@ -182,6 +194,7 @@ export default {
         });
         const status = m.test_ok === true ? badge(m.kind === "embedding" ? `ok · ${m.dim}d` : "tools ok", "ok") : m.test_ok === false ? badge("failed", "err") : badge("not tested");
         return h("tr", {}, h("td", { class: "mono" }, m.model_id, !m.available && badge("gone", "warn")), h("td", {}, m.kind), h("td", { class: "mono" }, m.context_window ? number(m.context_window) : "–"),
+          h("td", { class: "row" }, ...priceInputs(p, m)),
           h("td", {}, status, m.test_error && h("div", { class: "hint" }, m.test_error)), h("td", {}, m.vision && m.vision_tested ? badge("reads images", "ok") : m.vision_tested ? badge("cannot read", "err") : m.vision ? badge("claims vision") : "–", m.vision_error && h("div", { class: "hint" }, m.vision_error)), h("td", { class: "row" }, t, m.kind === "embedding" ? null : eyes));
       });
       const idIn = h("input", { type: "text", placeholder: "model id, for example llama3.1:8b" });
@@ -189,7 +202,7 @@ export default {
         if (idIn.value.trim() && await attempt(() => put(`/api/providers/${p.id}/models`, [{ model_id: idIn.value.trim() }]), "Model added")) { open.add(p.id); redraw(); }
       }, { small: true, iconName: "plus" }));
       return h("div", { class: "stack" },
-        rows.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Model", "Kind", "Context", "Test", "Vision", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "No models listed. Use Refresh models, or add one by hand."),
+        rows.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Model", "Kind", "Context", "Price per 1M tokens (USD, in / out)", "Test", "Vision", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "No models listed. Use Refresh models, or add one by hand."),
         add);
     }
 

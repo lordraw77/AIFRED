@@ -54,6 +54,13 @@ class CaseIn(BaseModel):
     expect: str = Field(pattern="^(this|other|none)$")
 
 
+class GenerateIn(BaseModel):
+    """What a new skill or sub-agent should do, in the admin's own words."""
+
+    kind: str
+    description: str = Field(min_length=10, max_length=1500)
+
+
 class ImproveIn(BaseModel):
     """A sub-agent or skill text to draft, rewrite or shorten; ``context`` is what the draft may be based on."""
 
@@ -146,6 +153,15 @@ async def improve(body: ImproveIn, _: AdminDep, services: ServicesDep) -> dict[s
     """Draft, rewrite or shorten a sub-agent description or role, or a skill description. The draft is returned, never saved."""
     try:
         return await services.assist.improve(body.kind, body.mode, body.text, body.context, body.hint)
+    except InstructionError as exc:
+        raise _bad(exc) from None
+
+
+@router.post("/api/assist/generate")
+async def generate(body: GenerateIn, _: AdminDep, services: ServicesDep) -> dict[str, Any]:
+    """Draft a whole skill or sub-agent from a description. The draft is returned, never saved: the editor opens with it filled in."""
+    try:
+        return await services.assist.generate(body.kind, body.description)
     except InstructionError as exc:
         raise _bad(exc) from None
 

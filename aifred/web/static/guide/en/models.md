@@ -34,6 +34,10 @@ A **route** is an ordered list of models. The first answers; if it fails (quota,
 - **Create route**: a name and a list. **Delete**.
 - Ready-made names: `default` (what chat uses), `vision` (images and scanned pages of the knowledge base: no default, you choose who receives your images, put any paid provider last), and any other you create, such as `assist` (drafting instructions) or `compress` (summaries). Which route each gateway uses is set by `ROUTE_WEB`, `ROUTE_TELEGRAM`, `ROUTE_API`, `ROUTE_CLI`, `ROUTE_CRON` and `ROUTE_COMPRESS` in [Config](#/guide?s=config); `/model` changes it for one conversation.
 
+## Prices
+
+Each model row has **Price per 1M tokens (USD, in / out)**: two optional boxes. Fill them from the provider's price list to see costs on the [Usage](#/guide?s=usage) page; leave them empty for local models and free tiers.
+
 ## Health and usage
 
 - **Health**: for each provider today's tokens, calls, errors and fallbacks, its budget, and the state of each model on each route (`healthy`, `cooldown`, or an error state, with the reason and a **Reset** button), and the last error.

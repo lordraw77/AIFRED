@@ -14,6 +14,7 @@ const PAGES = [
   { id: "mcp", label: "MCP", icon: "mcp", load: () => import("./pages/mcp.js") },
   { id: "connectors", label: "Connectors", icon: "connectors", load: () => import("./pages/connectors.js") },
   { id: "models", label: "Models", icon: "models", load: () => import("./pages/models.js") },
+  { id: "usage", label: "Usage", icon: "logs", load: () => import("./pages/usage.js") },
   { id: "journey", label: "Journey", icon: "journey", key: "j", load: () => import("./pages/journey.js") },
   { id: "logs", label: "Logs", icon: "logs", load: () => import("./pages/logs.js") },
   { id: "config", label: "Config", icon: "config", load: () => import("./pages/config.js") },

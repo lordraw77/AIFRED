@@ -2,6 +2,18 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.7.3] - 2026-10-30
+
+### Added
+- **Skill and agent generators.** *Generate with AI* on the Skills and Agents pages: describe the job in a sentence and the editor opens already filled in (a skill's name, description and steps; an agent's name, role, toolsets, skills and memory), for you to read, change and save. Nothing is saved before that. The draft only uses toolsets and skills that exist, never `agents`, `cron` or `review`, and never memory *write*. API `POST /api/assist/generate`.
+- **Usage page.** Tokens, calls and cost per provider (click one for its models) over the last 24 hours, 7 or 30 days, with totals and tokens per day. The cost is tokens times the price per million tokens (US dollars) set on the model: the Models page now has *Price per 1M tokens (in / out)* fields on each model, and a model without a price (a local model, a free tier) counts tokens with no cost. API `GET /api/usage/overview`.
+
+### Fixed
+- **Stale dashboard after an update.** Assets under `/static` carried no cache header, so a browser kept the old scripts and styles for hours (judging by their age) and did not show a new page until the cache was cleared. They are now sent with `Cache-Control: no-cache`: the browser asks every time and gets a short *not modified* answer when nothing changed.
+
+### Changed
+- **Skills page.** The side column is gone: skills are a grid of cards with a search box (by name and description), so a long list stays easy to scan. A card opens the editor at full width, with *All skills* to go back.
+
 ## [0.7.2] - 2026-10-30
 
 ### Fixed
