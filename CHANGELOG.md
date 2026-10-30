@@ -2,6 +2,11 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.7.2] - 2026-10-30
+
+### Fixed
+- **Gemini tool calls.** Gemini 3 models return a `thought_signature` with every function call (in `extra_content`) and refuse the next request, with HTTP 400 "Function call is missing a thought_signature", if it is not sent back. The streamed tool calls dropped it, so any task or chat that used a tool on Gemini failed on the second step. It is now kept on the call, and stored with the session history.
+
 ## [0.7.1] - 2026-10-29
 
 ### Changed

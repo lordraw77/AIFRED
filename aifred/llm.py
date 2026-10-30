@@ -437,6 +437,8 @@ class _Assembler:
             for tc in delta.get("tool_calls") or []:
                 slot = self.calls.setdefault(int(tc.get("index", 0)), {"id": "", "name": "", "arguments": ""})
                 slot["id"] = tc.get("id") or slot["id"]
+                if tc.get("extra_content"):
+                    slot["extra_content"] = tc["extra_content"]  # Gemini's thought_signature: must go back with the call
                 fn = tc.get("function") or {}
                 slot["name"] += fn.get("name") or ""
                 slot["arguments"] += fn.get("arguments") or ""
@@ -459,6 +461,7 @@ class _Assembler:
                 "id": slot["id"] or f"call_{i}",
                 "type": "function",
                 "function": {"name": slot["name"], "arguments": slot["arguments"] or "{}"},
+                **({"extra_content": slot["extra_content"]} if "extra_content" in slot else {}),
             }
             for i, (_, slot) in enumerate(sorted(self.calls.items()))
         ]
