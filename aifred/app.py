@@ -19,6 +19,7 @@ from aifred.gateways.telegram import TelegramGateway
 from aifred.instructions import InstructionService
 from aifred.library import LibraryService
 from aifred.mcp import McpManager, McpService
+from aifred.mcp_sampling import Sampler
 from aifred.memory import Memory
 from aifred.rag import RagService, RagWorker
 from aifred.review import ReviewService
@@ -161,6 +162,7 @@ class Services:
     instructions: InstructionService = field(init=False)
     mcp: McpService = field(init=False)
     mcp_manager: McpManager = field(init=False)
+    mcp_sampler: Sampler = field(init=False)
     library: LibraryService = field(init=False)
 
     def __post_init__(self) -> None:
@@ -172,7 +174,8 @@ class Services:
         self.assist = AssistService(self)
         self.library = LibraryService(self)
         self.mcp = McpService(self.store, self.vault, self.config, self.settings.data_dir / "mcp-stdio")
-        self.mcp_manager = McpManager(self.mcp, self.store)
+        self.mcp_sampler = Sampler(self)
+        self.mcp_manager = McpManager(self.mcp, self.store, sampler=self.mcp_sampler.sample)
         self.tools.add_source(self.mcp_manager.tools)
         self.config.subscribe(self._mcp_settings_changed)
         self.rag = RagService(self.store, self.config, self.providers, self.llm, self.web, self.settings.data_dir)

@@ -269,6 +269,171 @@ def test_results(fake_mcp: Make) -> None:
     assert client.call_tool("echo", {"message": "hi"}) == "echo: hi"
     assert client.call_tool("add", {"a": 2, "b": 3}) == '{"sum": 5}'
     assert "image/png" in client.call_tool("picture", {}) and client.call_tool("broken", {}) == "Error: it broke"
-    assert client.call_tool("ask", {}).startswith("Error: the server asked for further input")
+    assert client.call_tool("ask", {}) == "Error: the server asked for elicitation/create, which AIFRED does not provide"
     with pytest.raises(McpError, match="Unknown tool"):
         client.call_tool("nope", {})
+
+
+# Multi round-trip requests (2026-07-28)
+
+
+def asking(server: FakeMcp, **kw: Any) -> McpClient:
+    server.enable_mrtr()
+    client = client_for(server)
+    client.capabilities = {"elicitation": {"form": {}}, **kw}
+    client.connect()
+    client.list_tools()
+    return client
+
+
+def test_capabilities_are_declared_to_a_modern_server_only(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = asking(server)
+    client.call_tool("echo", {"message": "x"})
+    sent = [r.body["params"]["_meta"][f"{MODERN.rsplit('-', 2)[0] and 'io.modelcontextprotocol/'}clientCapabilities"] for r in server.requests if r.method == "tools/call"]
+    assert sent == [{"elicitation": {"form": {}}}]
+    legacy = fake_mcp(modern=False)
+    old = client_for(legacy)
+    old.capabilities = {"elicitation": {"form": {}}}
+    old.connect()
+    assert next(r for r in legacy.requests if r.method == "initialize").body["params"]["capabilities"] == {}
+
+
+def test_an_elicitation_becomes_a_question_and_the_answer_finishes_the_call(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = asking(server)
+    text = client.call_tool("ask", {})
+    token = text.split("(request ")[1].split(")")[0]
+    assert "Who are you?" in text and "field name: string (required)" in text and "field color: string one of ['red', 'blue']" in text and "mcp_reply" in text
+    result = client.reply(token, {"who": {"action": "accept", "content": {"name": "Ada", "age": 36, "extra": "dropped"}}})
+    assert result == 'hello {"age": 36, "name": "Ada"}'
+    retry = server.requests[-1].body
+    assert retry["params"]["requestState"] == "S1" and set(retry["params"]["inputResponses"]) == {"who"} and retry["id"] != server.requests[-2].body["id"]
+    assert [r.method for r in server.requests].count("tools/call") == 2
+    with pytest.raises(McpError, match="no such open question"):
+        client.reply(token, {})        # answered once, gone
+
+
+def test_a_wrong_answer_can_be_corrected_and_a_decline_is_passed_on(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = asking(server)
+    token = client.call_tool("ask", {}).split("(request ")[1].split(")")[0]
+    for bad, message in (({"who": {"action": "accept", "content": {"age": 3}}}, "'name' is required"), ({"who": {"action": "accept", "content": {"name": 5}}}, "must be of type string"),
+                         ({"who": {"action": "accept", "content": {"name": "a", "color": "green"}}}, "must be one of"), ({}, "needs an \"action\""),
+                         ({"who": {"action": "accept"}}, "needs \"content\"")):
+        with pytest.raises(McpError, match=message):
+            client.reply(token, bad)
+    assert client.reply(token, {"who": {"action": "decline"}}) == "declined: decline"
+
+
+def test_a_form_for_a_password_is_declined_without_asking(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = asking(server)
+    assert client.call_tool("login", {}) == 'login: {"pw": {"action": "decline"}}'
+    assert not client._pending
+
+
+def test_a_server_that_never_stops_asking_is_cut_off(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = asking(server)
+    assert client.call_tool("loop", {}).startswith("Error: the server kept asking for further input")
+    assert [r.method for r in server.requests].count("tools/call") == 5
+
+
+def test_sampling_is_answered_only_when_a_sampler_is_there(fake_mcp: Make) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def sampler(params: dict[str, Any]) -> dict[str, Any]:
+        seen.append(params)
+        return {"role": "assistant", "content": {"type": "text", "text": "Paris."}, "model": "m", "stopReason": "endTurn"}
+
+    server = fake_mcp()
+    client = asking(server, sampling={})
+    assert client.call_tool("think", {}).startswith("Error: the server asked for sampling/createMessage")   # no sampler wired
+    client.sampler = sampler
+    assert client.call_tool("think", {}) == "model said: Paris." and seen[0]["maxTokens"] == 50
+    client.capabilities = {}
+    assert client.call_tool("think", {}).startswith("Error: the server asked for sampling/createMessage")   # not declared
+    client.capabilities = {"sampling": {}}
+
+    def refuse(_: dict[str, Any]) -> dict[str, Any]:
+        raise McpError("at most 1 sampling requests an hour")
+
+    client.sampler = refuse
+    assert "was refused: at most 1 sampling" in client.call_tool("think", {})
+
+
+# Subscriptions (2026-07-28)
+
+
+def wait_for(check: Callable[[], bool], seconds: float = 5.0) -> bool:
+    import time
+
+    end = time.time() + seconds
+    while time.time() < end:
+        if check():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def listening(client: McpClient) -> tuple[list[str], Any]:
+    import threading
+
+    log: list[str] = []
+
+    def work() -> None:
+        try:
+            client.listen(lambda: log.append("changed"))
+            log.append("closed")
+        except McpError as exc:
+            log.append(f"error: {exc}")
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    return log, thread
+
+
+def test_a_listen_stream_reports_changes_and_ends_gracefully(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = connected(server)
+    log, thread = listening(client)
+    assert wait_for(lambda: any(r.method == "subscriptions/listen" for r in server.requests))
+    body = next(r for r in server.requests if r.method == "subscriptions/listen")
+    assert body.body["params"]["notifications"] == {"toolsListChanged": True} and body.headers["mcp-method"] == "subscriptions/listen"
+    server.events.put("tools")
+    server.events.put("tools")
+    assert wait_for(lambda: log == ["changed", "changed"])
+    server.events.put("end")
+    thread.join(5)
+    assert log == ["changed", "changed", "closed"]
+
+
+def test_a_server_that_does_not_honour_the_subscription_is_reported(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    server.list_changed = False
+    log, thread = listening(connected(server))
+    thread.join(5)
+    assert log == ["error: the server does not announce tool-list changes"]
+
+
+def test_closing_the_client_ends_the_stream(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    client = connected(server)
+    log, thread = listening(client)
+    assert wait_for(lambda: any(r.method == "subscriptions/listen" for r in server.requests))
+    client.close()
+    thread.join(5)
+    assert not thread.is_alive() and not any(entry.startswith("error") for entry in log)
+
+
+def test_a_dropped_stream_is_an_error_and_an_old_server_cannot_listen(fake_mcp: Make) -> None:
+    server = fake_mcp()
+    log, thread = listening(connected(server))
+    assert wait_for(lambda: any(r.method == "subscriptions/listen" for r in server.requests))
+    server.events.put("drop")
+    thread.join(5)
+    assert log and log[0].startswith("error: the subscription stream ended")
+    old = connected(fake_mcp(modern=False))
+    with pytest.raises(McpError, match="need the 2026-07-28 revision"):
+        old.listen(lambda: None)

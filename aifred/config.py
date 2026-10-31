@@ -72,7 +72,7 @@ class Settings(BaseSettings):
 
 Kind = Literal["str", "int", "float", "bool", "enum", "json", "list", "int_list", "url", "secret"]
 
-_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|library|terminal|cron|agents|mcp|mcp:[a-z0-9_]{1,24})$")
+_TOOLSET_RE = re.compile(r"^(memory|search|skills|web|file|knowledge|library|terminal|ssh|cron|agents|mcp|mcp:[a-z0-9_]{1,24})$")
 _URL_RE = re.compile(r"^https?://[^\s/]+(/\S*)?$")
 
 
@@ -153,6 +153,9 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         _toolsets("TOOLSETS_CRON", ["search", "web", "skills"], "Toolsets for scheduled tasks, which run unattended (add more only for tasks you trust)"),
         SettingSpec("ENABLE_TERMINAL", "bool", False, "tools", "Shortcut that adds terminal to TOOLSETS"),
         SettingSpec("TERMINAL_TIMEOUT", "int", 60, "tools", "Terminal command timeout (s)", minimum=1, maximum=3600),
+        SettingSpec("SSH_HOSTS", "json", {}, "tools", 'Hosts the ssh toolset may reach: {"name": {"user": "root", "host": "10.70.0.1", "port": 22, "host_key": "ssh-ed25519 AAAA...", "description": "Proxmox node"}}. host_key is required (ssh-keyscan -t ed25519 host): the connection is refused if the server presents another key'),
+        SettingSpec("SSH_PRIVATE_KEY", "secret", None, "tools", "Unencrypted private key (PEM or OpenSSH) used for every host in SSH_HOSTS; give it an account with only the rights the agent needs"),
+        SettingSpec("SSH_TIMEOUT", "int", 60, "tools", "Remote command timeout (s)", minimum=1, maximum=3600),
         SettingSpec("WEB_ALLOW_PRIVATE", "bool", False, "tools", "Let web_fetch reach private addresses"),
         SettingSpec("SEARXNG_URL", "url", "", "tools", "SearXNG base URL; enables web_search"),
         SettingSpec("REVIEW_ENABLED", "bool", True, "review", "Background self-improvement review"),
@@ -171,6 +174,10 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec("AGENT_MAX_PARALLEL", "int", 3, "agents", "Sub-agents that delegate_many runs at the same time", minimum=1, maximum=10),
         SettingSpec("AGENT_MAX_AGENTS", "int", 20, "agents", "Most sub-agents that can be defined", minimum=1, maximum=200),
         SettingSpec("MCP_CONNECT_TIMEOUT", "int", 15, "mcp", "Default MCP connect timeout (s)", minimum=1, maximum=600),
+        SettingSpec("MCP_ELICITATION", "bool", True, "mcp", "Let a 2026-07-28 MCP server ask the user for information in the middle of a tool call (a short form). The question reaches the model, which asks you in the chat and sends your answer back; forms for passwords, tokens or keys are always declined"),
+        SettingSpec("MCP_SAMPLING", "bool", False, "mcp", "Let a 2026-07-28 MCP server have AIFRED's model write text for it (sampling). It spends your tokens and the server reads the answer, so leave it off unless you trust the server; text only, no tools"),
+        SettingSpec("MCP_SAMPLING_PER_HOUR", "int", 20, "mcp", "Sampling requests all servers together may make in an hour", minimum=1, maximum=1000),
+        SettingSpec("MCP_SUBSCRIPTIONS", "bool", True, "mcp", "Keep a subscriptions/listen stream open to 2026-07-28 servers so a changed tool list is read at once instead of when its cache expires"),
         SettingSpec("MCP_STDIO_COMMANDS", "list", [], "mcp", "Executables the dashboard may start as MCP servers over stdio, by file name (empty: stdio servers are off). A server runs inside the AIFRED container with its privileges, so list only what you trust", item_pattern=re.compile(r"^[A-Za-z0-9._+-]{1,64}$")),
         SettingSpec("MCP_OAUTH_CLIENT_ID", "str", "", "mcp", "Client id for OAuth sign-in to MCP servers, registered by hand with their provider (empty: use the client metadata document below)"),
         SettingSpec("MCP_OAUTH_PUBLIC_URL", "url", "", "mcp", "https address where AIFRED is reachable from the internet; AIFRED then serves the client metadata document an authorization server fetches (empty: off)"),

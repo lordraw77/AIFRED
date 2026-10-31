@@ -202,6 +202,7 @@ class AgentService:
         granted = {
             t.toolset for t in tools.all()
             if tools.toolset_enabled(t.toolset, own) and tools.toolset_enabled(t.toolset, caller_set) and t.toolset not in NEVER
+            and t.name != "mcp_reply"   # a sub-agent cannot ask the user, so it may not answer a server's question for them
         }
         return frozenset(granted | {"help"})
 

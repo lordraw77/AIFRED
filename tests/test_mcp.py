@@ -409,3 +409,101 @@ def test_api_flags_unverified_tls(api: TestClient, fake_mcp: Make) -> None:
     assert ok.status_code == 200 and ok.json()["tls_unverified"] is True
     custom = api.put("/api/mcp/servers/lab", json={"verify_tls": str(server.cert)})
     assert custom.status_code == 200 and custom.json()["tls_unverified"] is False
+
+
+# Advanced MCP: subscriptions, questions and sampling
+
+
+def tool_names(services: Services) -> set[str]:
+    return {t.name for t in services.mcp_manager.tools()}
+
+
+def test_a_list_changed_notification_refreshes_the_tools_at_once(services: Services, mcp_up: Callable[..., FakeMcp]) -> None:
+    server = mcp_up("fake")                    # the cache lives 5 minutes: only the stream can explain a quick refresh
+    wait_for(lambda: any(r.method == "subscriptions/listen" for r in server.requests))
+    assert "mcp__fake__fresh" not in tool_names(services)
+    server.tools.append({"name": "fresh", "description": "New", "inputSchema": {"type": "object"}})
+    server.events.put("tools")
+    wait_for(lambda: "mcp__fake__fresh" in tool_names(services))
+
+
+def test_subscriptions_can_be_switched_off(services: Services, fake_mcp: Make) -> None:
+    services.config.update({"MCP_SUBSCRIPTIONS": False})
+    server = fake_mcp()
+    services.mcp.save("fake", {"url": server.url})
+    services.mcp_manager.start()
+    wait_for(lambda: state_of(services, "fake") == "connected")
+    assert "subscriptions/listen" not in server.methods()
+
+
+def test_a_server_without_the_stream_is_left_to_its_cache(services: Services, mcp_up: Callable[..., FakeMcp]) -> None:
+    server = mcp_up("fake", list_changed=False)
+    wait_for(lambda: any(r.method == "subscriptions/listen" for r in server.requests))
+    time.sleep(0.5)
+    assert [r.method for r in server.requests].count("subscriptions/listen") == 1 and state_of(services, "fake") == "connected"
+
+
+@pytest.mark.anyio
+async def test_the_model_asks_the_user_and_answers_with_mcp_reply(services: Services, fake_mcp: Make) -> None:
+    server = fake_mcp()
+    server.enable_mrtr()
+    services.mcp.save("fake", {"url": server.url})
+    services.mcp_manager.start()
+    wait_for(lambda: state_of(services, "fake") == "connected")
+    services.config.update({"TOOLSETS": ["mcp:fake"]})
+    ctx = ToolContext(services, "cli:q", "cli")
+    declared = [r for r in server.requests if r.method == "tools/list"][0].body["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"]
+    assert declared == {"elicitation": {"form": {}}}                           # sampling stays off by default
+    assert "mcp_reply" not in {t.name for t in services.tools.for_context(ctx)}   # nothing is waiting yet
+    out = await services.tools.execute(ctx, "mcp__fake__ask", "{}")
+    token = out.split("(request ")[1].split(")")[0]
+    assert "Who are you?" in out and "mcp_reply" in {t.name for t in services.tools.for_context(ctx)}
+    answer = {"request": token, "answers": {"who": {"action": "accept", "content": {"name": "Ada"}}}}
+    assert await services.tools.execute(ctx, "mcp_reply", json.dumps(answer)) == 'hello {"name": "Ada"}'
+    assert await services.tools.execute(ctx, "mcp_reply", json.dumps(answer)) == "Error: unknown tool 'mcp_reply'"   # answered once: nothing is waiting
+    assert "mcp_reply" not in {t.name for t in services.tools.for_context(ctx)}
+    assert "mcp_reply" not in {t.name for t in services.tools.for_context(ToolContext(services, "telegram:open:1", "telegram", True))}
+
+
+def test_elicitation_can_be_switched_off(services: Services, fake_mcp: Make) -> None:
+    services.config.update({"MCP_ELICITATION": False})
+    server = fake_mcp()
+    services.mcp.save("fake", {"url": server.url})
+    services.mcp_manager.start()
+    wait_for(lambda: state_of(services, "fake") == "connected")
+    assert [r for r in server.requests if r.method == "tools/list"][0].body["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] == {}
+
+
+@pytest.mark.anyio
+async def test_sampling_runs_the_default_model_for_the_server_only_when_allowed(services: Services, llm_ready: FakeLLM, fake_mcp: Make) -> None:
+    server = fake_mcp()
+    server.enable_mrtr()
+    services.config.update({"MCP_SAMPLING": True, "MCP_SAMPLING_PER_HOUR": 1})
+    services.mcp.save("fake", {"url": server.url})
+    services.mcp_manager.start()
+    wait_for(lambda: state_of(services, "fake") == "connected")
+    services.config.update({"TOOLSETS": ["mcp:fake"]})
+    ctx = ToolContext(services, "cli:s", "cli")
+    assert [r for r in server.requests if r.method == "tools/list"][0].body["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] == {"elicitation": {"form": {}}, "sampling": {}}
+    llm_ready.queue(Text("Paris."))
+    assert await services.tools.execute(ctx, "mcp__fake__think", "{}") == "model said: Paris."
+    sent = llm_ready.requests[0].body["messages"]
+    assert sent[0] == {"role": "system", "content": "Be brief."} and sent[1]["content"] == "Capital of France?"
+    assert "was refused: at most 1 sampling requests an hour" in await services.tools.execute(ctx, "mcp__fake__think", "{}")
+    usage = services.store._query("SELECT agent, source FROM llm_usage ORDER BY id DESC LIMIT 1")
+    assert usage == [{"agent": "mcp:fake", "source": "mcp-sampling"}]
+
+
+def test_sampling_refuses_anything_but_plain_text(services: Services) -> None:
+    from aifred.mcp_client import McpError
+
+    sample = services.mcp_sampler.sample
+    ok = {"messages": [{"role": "user", "content": {"type": "text", "text": "hi"}}], "maxTokens": 10}
+    with pytest.raises(McpError, match="turned off"):
+        sample("s", ok)
+    services.config.update({"MCP_SAMPLING": True})
+    for bad, message in (({**ok, "tools": [{"name": "x"}]}, "with tools"), ({**ok, "messages": []}, "1 to 20 messages"), ({**ok, "messages": [{"role": "system", "content": {"type": "text", "text": "x"}}]}, "role user or assistant"),
+                         ({**ok, "messages": [{"role": "user", "content": {"type": "image", "data": "x", "mimeType": "image/png"}}]}, "only text"),
+                         ({**ok, "messages": [{"role": "user", "content": {"type": "text", "text": "x" * 30_000}}]}, "longer than")):
+        with pytest.raises(McpError, match=message):
+            sample("s", bad)

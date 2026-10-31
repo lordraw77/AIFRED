@@ -159,6 +159,8 @@ class ToolRegistry:
     @staticmethod
     def toolset_enabled(toolset: str, enabled: set[str]) -> bool:
         """Whether a toolset is on; ``mcp`` switches on every ``mcp:<server>``."""
+        if toolset == "mcp":   # the tools about MCP in general (mcp_reply) are on when any server's tools are
+            return any(t == "mcp" or t.startswith("mcp:") for t in enabled)
         return toolset in enabled or (toolset.startswith("mcp:") and "mcp" in enabled)
 
     @staticmethod

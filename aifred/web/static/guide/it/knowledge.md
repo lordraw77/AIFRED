@@ -18,7 +18,7 @@ Una collezione è un gruppo di documenti con un nome ("homelab", "manuali"). La 
 - Un filtro per collezione e l'elenco: titolo e nome file, **stato**, tipo, passaggi, dimensione, ultimo aggiornamento, *Delete*.
 - **Stati**: `queued` (in attesa), `indexing`, `ready`, `waiting` (il servizio di embedding non è raggiungibile; AIFRED riprova), `partial` (è stato raggiunto un limite, la parte che ci stava è ricercabile), `error` (passa il mouse per il motivo).
 - **Upload**: scegli la collezione, scegli i file, *Upload*. **Add URL**: AIFRED scarica la pagina o il documento.
-- **Formati**: testo, Markdown, HTML, JSON, CSV, YAML; PDF; file Word, Excel, PowerPoint e OpenDocument; immagini JPG, PNG e WebP (lette dal modello vision). `RAG_FORMATS` sceglie quali accettare. Il limite di dimensione è `RAG_MAX_DOCUMENT_BYTES` (5 MB di default).
+- **Formati**: testo, Markdown, HTML, JSON, CSV, YAML; PDF; file Word, Excel, PowerPoint e OpenDocument, anche i vecchi `.doc`, `.xls` e `.ppt` (solo testo), messaggi e-mail (`.eml`) e libri EPUB; immagini JPG, PNG e WebP (lette dal modello vision). `RAG_FORMATS` sceglie quali accettare. Il limite di dimensione è `RAG_MAX_DOCUMENT_BYTES` (5 MB di default).
 
 ### Test search
 Scrivi una domanda, scegli la modalità e premi `Invio`.

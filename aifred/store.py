@@ -622,6 +622,18 @@ class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, 
             c.execute("UPDATE sessions SET updated = ? WHERE id = ?", (now, session_id))
             return int(cur.lastrowid or 0)
 
+    def recent_requests(self, since: float, sources: tuple[str, ...], limit: int) -> list[dict[str, Any]]:
+        """The latest user requests of the given gateways with the tool calls the assistant made to answer each (JSON lines, or ``None``)."""
+        marks = ",".join("?" for _ in sources)
+        return self._query(
+            "SELECT u.content AS request, (SELECT group_concat(a.tool_calls, char(10)) FROM messages a WHERE a.session_id = u.session_id "
+            "AND a.role = 'assistant' AND a.tool_calls IS NOT NULL AND a.id > u.id AND a.id < COALESCE("
+            "(SELECT MIN(n.id) FROM messages n WHERE n.session_id = u.session_id AND n.role = 'user' AND n.id > u.id), 9223372036854775807)) AS calls "
+            f"FROM messages u JOIN sessions s ON s.id = u.session_id WHERE u.role = 'user' AND u.ts >= ? AND s.source IN ({marks}) "
+            "AND u.content IS NOT NULL AND u.content NOT LIKE '/%' ORDER BY u.id DESC LIMIT ?",
+            (since, *sources, limit),
+        )
+
     def messages(self, session_id: str, limit: int = 500, before_id: int | None = None) -> list[dict[str, Any]]:
         """Return stored messages in chronological order (for the dashboard)."""
         rows = self._query(

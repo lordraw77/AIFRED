@@ -45,6 +45,7 @@ class SuggestIn(BaseModel):
     mode: str = "generate"
     current: str = Field(default="", max_length=4000)
     use_memory: bool = False
+    use_sessions: bool = False
 
 
 class CaseIn(BaseModel):
@@ -103,7 +104,7 @@ async def suggest(body: SuggestIn, _: AdminDep, services: ServicesDep) -> dict[s
             if not result["ok"]:
                 raise InstructionError(f"cannot reach the server to read its tools: {result['error']}")
             tools = result["tool_info"]
-        return await services.instructions.suggest(body.scope, body.hint, tools, mode=body.mode, current=body.current, use_memory=body.use_memory)
+        return await services.instructions.suggest(body.scope, body.hint, tools, mode=body.mode, current=body.current, use_memory=body.use_memory, use_sessions=body.use_sessions)
     except InstructionError as exc:
         raise _bad(exc) from None
     except VaultError as exc:
