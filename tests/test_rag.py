@@ -166,7 +166,7 @@ def test_limits_and_unreadable_files(kb: KB) -> None:
     kb.rag.create_collection("c")
     with pytest.raises(RagError, match="limit is 1,024"):
         kb.rag.add_document("c", "big.md", b"x" * 2000)
-    with pytest.raises(RagError, match="legacy .doc"):
+    with pytest.raises(RagError, match="not a valid .doc"):
         kb.rag.add_document("c", "old.doc", b"x")
     with pytest.raises(RagError, match="not a valid .pdf"):
         kb.rag.add_document("c", "manual.pdf", b"just text with a pdf name")

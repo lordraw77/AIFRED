@@ -135,7 +135,7 @@ def test_upload_validation(on: TestClient) -> None:
     on.post("/api/rag/collections", json={"name": "c"})
     assert upload(on, "nope", "a.md", "# A\n\ntext").status_code == 422
     assert "not a valid .pdf" in upload(on, "c", "manual.pdf", b"plain text pretending").json()["detail"]
-    assert "legacy .doc" in upload(on, "c", "old.doc", b"x").json()["detail"]
+    assert "not a valid .doc" in upload(on, "c", "old.doc", b"x").json()["detail"]
     assert upload(on, "c", "tool.exe", b"MZ").status_code == 422
     assert on.post("/api/rag/documents", params={"collection": "c"}, content="x").status_code == 422  # name is required
     on.put("/api/config", json={"values": {"RAG_MAX_DOCUMENT_BYTES": 1024}})

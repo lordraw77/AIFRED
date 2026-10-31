@@ -48,12 +48,10 @@ MAX_QUERY_TERMS = 32
 SCAN_BLOCK = 2048
 BINARY_GROUPS = {
     ".pdf": "pdf", ".docx": "office", ".xlsx": "office", ".pptx": "office", ".odt": "office", ".ods": "office", ".odp": "office",
+    ".doc": "office", ".xls": "office", ".ppt": "office", ".epub": "office", ".eml": "office",
     ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
 }
 CONVERT = {
-    ".doc": "legacy .doc files are not supported: save the document as .docx or PDF",
-    ".xls": "legacy .xls files are not supported: save the spreadsheet as .xlsx",
-    ".ppt": "legacy .ppt files are not supported: save the presentation as .pptx or PDF",
     ".gif": "convert the image to jpg, png or webp", ".bmp": "convert the image to jpg, png or webp",
     ".tif": "convert the image to jpg, png or webp", ".tiff": "convert the image to jpg, png or webp",
 }
@@ -444,8 +442,10 @@ class RagService:
         magic = magic_kind(head)
         if magic in ("pdf", "image"):
             group = magic
-        elif magic == "zip" and ext in BINARY_GROUPS and BINARY_GROUPS[ext] == "office":
+        elif magic in ("zip", "ole") and ext in BINARY_GROUPS and BINARY_GROUPS[ext] == "office":
             group = "office"
+        elif ext == ".eml" and magic is None:
+            group = "office"                                  # a message is plain text: the parser checks its headers
         elif magic == "zip":
             raise RagError("archives are not supported; only Office and OpenDocument files are read")
         elif ext in BINARY_GROUPS:

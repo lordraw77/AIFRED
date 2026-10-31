@@ -305,6 +305,30 @@ async def test_memory_reaches_the_draft_only_when_asked(services: Services, llm_
     assert "10.70.0.0/21" in llm_ready.requests[1].body["messages"][1]["content"]
 
 
+async def test_recent_chats_that_missed_the_target_reach_the_draft_only_when_asked(services: Services, llm_ready: FakeLLM) -> None:
+    store = services.store
+    for sid, source in (("web:1", "web"), ("telegram:open:9", "telegram")):
+        store.ensure_session(sid, source)
+    call = [{"id": "c1", "type": "function", "function": {"name": "web_fetch", "arguments": "{}"}}]
+    store.add_message("web:1", "user", "please save a note about the new memory preference of my user")
+    store.add_message("web:1", "assistant", None, call)
+    store.add_message("web:1", "user", "update memory notes about the user profile preference")
+    store.add_message("web:1", "assistant", "done")
+    store.add_message("web:1", "user", "what is the weather")
+    store.add_message("web:1", "assistant", None, [{"id": "c2", "type": "function", "function": {"name": "memory", "arguments": "{}"}}])
+    store.add_message("web:1", "user", "remember the memory notes preference for the user profile")   # answered with the target: left out
+    store.add_message("web:1", "assistant", None, [{"id": "c3", "type": "function", "function": {"name": "memory", "arguments": "{}"}}])
+    store.add_message("telegram:open:9", "user", "stranger asks about memory notes and the user profile preference")
+    llm_ready.queue(Text("Draft one."), Text("Draft two."))
+    await services.instructions.suggest("toolset:memory", "", mode="generate")
+    await services.instructions.suggest("toolset:memory", "", mode="generate", use_sessions=True)
+    first, second = (r.body["messages"][1]["content"] for r in llm_ready.requests[:2])
+    assert "answered without it" not in first
+    assert 'please save a note about the new memory preference of my user" -> answered with web_fetch' in second
+    assert 'update memory notes about the user profile preference" -> answered with no tool' in second
+    assert "weather" not in second and "remember the memory notes" not in second and "stranger" not in second
+
+
 async def test_assist_command_drafts_scores_and_saves_nothing(services: Services, llm_ready: FakeLLM) -> None:
     from aifred.commands import Commands, Context
 

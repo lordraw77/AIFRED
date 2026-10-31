@@ -2,6 +2,21 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.8.0] - 2026-10-31
+
+### Added
+- **Remote terminal over SSH.** A new `ssh` toolset (`ssh_hosts`, `ssh_run`), off by default and never given to an open Telegram bot. Hosts are listed in `SSH_HOSTS` with a mandatory `host_key`, so the assistant can only name machines you chose and the connection fails if the server presents another key (nothing is learned on first use). One unencrypted key (`SSH_PRIVATE_KEY`, a secret) serves all of them and reaches `ssh` through its standard input, never a named file or the environment. Same destructive-command blocklist, timeout (`SSH_TIMEOUT`) and output cap as the local terminal. The Docker image now includes `openssh-client`.
+- **Knowledge base: legacy Office, e-mail and EPUB.** `.doc`, `.xls` and `.ppt` (Office 97-2003, text only), `.eml` messages and `.epub` books are indexed, read in the same sandbox with the standard library alone (no new dependency). Encrypted files and files from before Office 97 are refused with a clear message.
+- **MCP: questions from servers and live tool lists (2026-07-28).** A server may stop a tool call to ask the user for information (multi round-trip `input_required`): the question goes to the model, which asks you in the chat and continues with the new `mcp_reply` tool; forms for passwords, tokens or keys and URL-mode requests are declined (`MCP_ELICITATION`). Sampling, where a server has the model write text, is available but off (`MCP_SAMPLING`, text only, rate limited). Servers also get a `subscriptions/listen` stream so a changed tool list is read at once (`MCP_SUBSCRIPTIONS`).
+- **Description assistant: recent chats.** *Use my recent chats that missed this target* adds up to six of your own recent requests that looked related to the group but were answered without it.
+- **Usage page: By day.** Days with usage, newest first, each opening onto its providers with calls, errors, tokens and cost. API: `by_day` in `GET /api/usage/overview`.
+
+### Fixed
+- **Tokens per day bars were empty.** The bar widths were inline styles, which the page's content security policy blocks; they now go through a CSS variable like the other bars.
+
+### Changed
+- `docs/specs.md`: the description-assistant section was behind the code (`/assist`, streamed progress and the profile-and-notes input were already built); it now says so.
+
 ## [0.7.3] - 2026-10-30
 
 ### Added

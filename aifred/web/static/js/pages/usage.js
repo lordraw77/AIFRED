@@ -7,6 +7,7 @@ export default {
   async render(root, ctx) {
     let days = 7;
     const open = new Set();          // providers whose models are expanded
+    const openDays = new Set();      // days whose providers are expanded
     const body = h("div", {});
     root.append(body);
 
@@ -19,7 +20,7 @@ export default {
         h("button", { type: "button", role: "tab", "aria-selected": String(d === days), onclick: () => { days = d; redraw(); } }, d === 1 ? "Last 24 hours" : `${d} days`)));
       body.append(h("div", { class: "row pad-b" }, seg));
       if (!data.providers.length) { body.append(empty("No model calls in this period.")); return; }
-      body.append(totals(data), providersPanel(data), dailyPanel(data));
+      body.append(totals(data), providersPanel(data), byDayPanel(data), dailyPanel(data));
     }
 
     function totals(data) {
@@ -50,6 +51,27 @@ export default {
         h("p", { class: "hint" }, "Click a provider for its models. Cost is tokens times the price per million tokens set on the model (Models page, in US dollars). Local models and free tiers need no price."));
     }
 
+    function byDayPanel(data) {
+      const cells = (x) => [h("td", { class: "mono" }, number(x.calls)), h("td", { class: "mono" }, number(x.errors)), h("td", { class: "mono" }, number(x.tokens_in)),
+        h("td", { class: "mono" }, number(x.tokens_out)), h("td", { class: "mono" }, money(x.cost))];
+      const rows = [];
+      for (const d of data.by_day) {
+        const isOpen = openDays.has(d.day);
+        rows.push(h("tr", { class: "row-hover", onclick: () => { if (isOpen) openDays.delete(d.day); else openDays.add(d.day); redraw(); }, style: "cursor: pointer" },
+          h("td", { class: "mono" }, `${isOpen ? "▾" : "▸"} ${d.day}`), ...cells(d)));
+        if (isOpen) for (const p of d.providers) rows.push(h("tr", { class: "sub" }, h("td", { class: "mono hint" }, `   ${p.provider}`), ...cells(p)));
+      }
+      return panel("By day", "logs",
+        rows.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Day", "Calls", "Errors", "Tokens in", "Tokens out", "Cost"].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing in this period."),
+        h("p", { class: "hint" }, "Days with usage, newest first. Click a day for its providers. Days are UTC."));
+    }
+
+    function fill(pct) {   // the CSP blocks inline style attributes, so the width goes through a CSS variable
+      const bar = h("div", { class: "bar" }, h("span", {}));
+      bar.firstChild.style.setProperty("--pct", String(pct));
+      return bar;
+    }
+
     function dailyPanel(data) {
       const perDay = new Map();
       for (const r of data.daily) {
@@ -58,7 +80,7 @@ export default {
       }
       const max = Math.max(1, ...[...perDay.values()].map((d) => d.total));
       const rows = [...perDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([day, d]) =>
-        h("div", { class: "bar-row", title: d.parts.join(" · ") }, h("span", { class: "mono" }, day), h("div", { class: "bar" }, h("span", { style: `width: ${Math.max(1, Math.round((d.total / max) * 100))}%` })), h("span", { class: "mono" }, number(d.total))));
+        h("div", { class: "bar-row", title: d.parts.join(" · ") }, h("span", { class: "mono" }, day), fill(Math.max(1, Math.round((d.total / max) * 100))), h("span", { class: "mono" }, number(d.total))));
       return panel("Tokens per day", "logs", rows.length ? h("div", { class: "bars" }, rows) : h("p", { class: "muted" }, "Nothing in this period."));
     }
 

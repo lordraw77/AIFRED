@@ -53,6 +53,9 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 | `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB` | empty (inherit) | A gateway's own list. The switches on [Tools](#/guide?s=tools) and [MCP](#/guide?s=mcp) edit these for you. |
 | `TOOLSETS_CRON` | search, web, skills | Toolsets for scheduled tasks; add more only for tasks you trust. |
 | `ENABLE_TERMINAL` | off | Shortcut that adds `terminal` (shell commands). |
+| `SSH_HOSTS` | empty | Hosts the `ssh` toolset may reach, a JSON object `{"name": {"user", "host", "port", "host_key", "description"}}`. `host_key` is required (`ssh-keyscan -t ed25519 host`). |
+| `SSH_PRIVATE_KEY` | not set | Unencrypted private key used for every host in `SSH_HOSTS` (secret). |
+| `SSH_TIMEOUT` | 60 | Remote command timeout (s). |
 | `TERMINAL_TIMEOUT` | 60 | Seconds a command may run. |
 | `WEB_ALLOW_PRIVATE` | off | Let the page fetcher reach addresses of your own network. |
 | `SEARXNG_URL` | empty | Address of a SearXNG server; it turns web search on. |
@@ -87,6 +90,10 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 |---|---|---|
 | `MCP_CONNECT_TIMEOUT`, `MCP_CALL_TIMEOUT` | 15, 120 | Default timeouts in seconds. |
 | `MCP_MAX_TOOLS_PER_SERVER` | 40 | Most tools taken from one server. |
+| `MCP_ELICITATION` | on | A 2026-07-28 MCP server may ask you for information in the middle of a tool call (a short form); the model asks you in the chat. Forms for passwords, tokens or keys are always declined. |
+| `MCP_SAMPLING` | off | A 2026-07-28 MCP server may have AIFRED's model write text for it. It spends your tokens: text only, no tools. |
+| `MCP_SAMPLING_PER_HOUR` | 20 | Sampling requests all servers together may make in an hour. |
+| `MCP_SUBSCRIPTIONS` | on | Keep a `subscriptions/listen` stream open to 2026-07-28 servers so a changed tool list is read at once. |
 | `MCP_STDIO_COMMANDS` | empty | Program names the dashboard may start as MCP servers. Empty: that feature is off. |
 | `MCP_OAUTH_CLIENT_ID` | empty | Client id registered by hand for OAuth sign-in. |
 | `MCP_OAUTH_PUBLIC_URL` | empty | Public https address of AIFRED, so it can serve its client metadata document. |

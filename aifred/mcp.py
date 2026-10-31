@@ -194,6 +194,18 @@ class McpService:
         """The private working directory of a stdio server."""
         return self._workdir / name
 
+    def capabilities(self, sampling: bool) -> dict[str, Any]:
+        """What the client declares to a 2026-07-28 server (revisions with a handshake declare nothing)."""
+        caps: dict[str, Any] = {}
+        if self._config.get("MCP_ELICITATION"):
+            caps["elicitation"] = {"form": {}}
+        if sampling and self._config.get("MCP_SAMPLING"):
+            caps["sampling"] = {}
+        return caps
+
+    def subscriptions_enabled(self) -> bool:
+        return bool(self._config.get("MCP_SUBSCRIPTIONS"))
+
     def defaults(self) -> tuple[float, float, int]:
         """Default call timeout, connect timeout and tool cap from the settings."""
         c = self._config
@@ -457,7 +469,9 @@ class McpManager:
     def __init__(
         self, service: McpService, store: Store, *, clock: Callable[[], float] = time.monotonic,
         client_factory: Callable[[McpServer, dict[str, str]], McpClient] | None = None,
+        sampler: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
+        self._sampler = sampler
         self._service = service
         self._store = store
         self._clock = clock
@@ -470,6 +484,15 @@ class McpManager:
         self._pool: ThreadPoolExecutor | None = None
 
     def _default_factory(self, server: McpServer, headers: dict[str, str]) -> McpClient:
+        client = self._build_client(server, headers)
+        if not server.stdio:
+            sampler = self._sampler
+            client.capabilities = self._service.capabilities(sampler is not None)
+            if sampler is not None:
+                client.sampler = lambda params: sampler(server.name, params)
+        return client
+
+    def _build_client(self, server: McpServer, headers: dict[str, str]) -> McpClient:
         call, connect, _ = self._service.defaults()
         if server.stdio:    # for a stdio server the stored "headers" are its environment variables
             return StdioClient(
@@ -613,6 +636,36 @@ class McpManager:
             state.server_text = client.instructions
             self._apply(state, listing.tools, listing.dropped, listing.ttl)
         logger.info("MCP server %s connected (protocol %s, %d tool(s))", server.name, client.version, len(state.tools))
+        if client.modern and self._service.subscriptions_enabled():
+            threading.Thread(target=self._listen, args=(state, client), name=f"mcp-listen-{server.name}", daemon=True).start()
+
+    def _listen(self, state: ServerState, client: McpClient) -> None:
+        """Keep a ``subscriptions/listen`` stream open: a tool-list change marks the server stale so it is re-read at once.
+
+        The stream is an optimisation over the cache lifetime: a server that does not offer it is left to the periodic
+        refresh, and a dropped stream is reopened with a growing delay.
+        """
+        delay = 1.0
+        while not self._stop.is_set() and state.client is client:
+            started = self._clock()
+            try:
+                client.listen(lambda: self._mark_stale(state, client))
+            except McpError as exc:
+                if exc.status in (400, 404, 405, 406, 501) or exc.code in (-32601, -32602, -32021):
+                    logger.info("MCP server %s has no tool-list subscription (%s); relying on its cache lifetime", state.server.name, exc)
+                    return
+                logger.debug("MCP subscription of %s ended: %s", state.server.name, exc)
+            if self._clock() - started > 60:
+                delay = 1.0                              # it lived a while: not a flapping server
+            if self._stop.wait(delay):
+                return
+            delay = min(delay * 2, 60.0)
+
+    def _mark_stale(self, state: ServerState, client: McpClient) -> None:
+        with self._lock:
+            if state.client is client:
+                state.stale = True
+        self._wake.set()
 
     def _refresh(self, state: ServerState) -> None:
         client = state.client
@@ -723,6 +776,28 @@ class McpManager:
                 state.stale = True  # re-read the tool list after any error
             self._wake.set()
             raise ToolError(f"MCP server {server!r}: {exc}") from None
+
+    def reply(self, token: str, answers: dict[str, Any]) -> str:
+        """Continue a tool call that stopped at an elicitation, on whichever server asked.
+
+        Raises:
+            ToolError: If no connected server has that open question or the call fails.
+        """
+        with self._lock:
+            owners = [(name, s.client) for name, s in self._states.items() if s.client and token in s.client._pending]
+        if not owners:
+            raise ToolError("there is no such open question (it expired or was already answered); call the tool again")
+        name, client = owners[0]
+        try:
+            return client.reply(token, answers)
+        except McpError as exc:
+            raise ToolError(f"MCP server {name!r}: {exc}") from None
+
+    def has_questions(self) -> bool:
+        """Whether any server is waiting for an answer."""
+        now = time.monotonic()
+        with self._lock:
+            return any(p.expires > now for s in self._states.values() if s.client for p in s.client._pending.values())
 
     # Connection test
 

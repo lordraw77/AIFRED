@@ -18,7 +18,7 @@ A collection is a named group of documents ("homelab", "manuals"). The table sho
 - A filter by collection and the list: title and file name, **state**, kind, passages, size, last update, *Delete*.
 - **States**: `queued` (waiting), `indexing`, `ready`, `waiting` (the embedding service is unavailable; AIFRED retries), `partial` (a limit was reached, the part that fit is searchable), `error` (hover for the reason).
 - **Upload**: choose the collection, choose files, *Upload*. **Add URL**: AIFRED downloads the page or document.
-- **Formats**: text, Markdown, HTML, JSON, CSV, YAML; PDF; Word, Excel, PowerPoint and OpenDocument files; JPG, PNG and WebP images (read by the vision model). `RAG_FORMATS` chooses which are accepted. The size limit is `RAG_MAX_DOCUMENT_BYTES` (5 MB by default).
+- **Formats**: text, Markdown, HTML, JSON, CSV, YAML; PDF; Word, Excel, PowerPoint and OpenDocument files, including the old `.doc`, `.xls` and `.ppt` (text only), e-mail messages (`.eml`) and EPUB books; JPG, PNG and WebP images (read by the vision model). `RAG_FORMATS` chooses which are accepted. The size limit is `RAG_MAX_DOCUMENT_BYTES` (5 MB by default).
 
 ### Test search
 Type a question, choose the mode and press `Enter`.

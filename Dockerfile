@@ -12,7 +12,7 @@ COPY requirements.lock /tmp/requirements.lock
 RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.lock
 
 FROM ${PYTHON_IMAGE}
-ARG VERSION=0.7.3
+ARG VERSION=0.8.0
 LABEL org.opencontainers.image.title="AIFRED" \
       org.opencontainers.image.description="A lean, self-hosted personal AI agent" \
       org.opencontainers.image.version="${VERSION}" \
@@ -24,6 +24,10 @@ LABEL org.opencontainers.image.title="AIFRED" \
 # security updates that the pinned base image does not have yet (openssl 3.0.22-1~deb12u2); drop this line when the
 # digest above is refreshed and `docker run --rm aquasec/trivy image` is clean without it
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libssl3 openssl \
+ && rm -rf /var/lib/apt/lists/*
+
+# the ssh client of the remote terminal (the `ssh` toolset, off until SSH_HOSTS and SSH_PRIVATE_KEY are set)
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 aifred \

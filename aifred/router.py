@@ -750,7 +750,26 @@ class LLMRouter:
         costs = [p["cost"] for p in rows if p["cost"] is not None]
         totals = {"calls": sum(p["calls"] for p in rows), "errors": sum(p["errors"] for p in rows), "tokens_in": sum(p["tokens_in"] for p in rows),
                   "tokens_out": sum(p["tokens_out"] for p in rows), "cost": sum(costs) if costs else None, "unpriced_models": sum(p["unpriced_models"] for p in rows)}
-        return {"days": days, "providers": rows, "totals": totals, "daily": self._store.usage_daily(since)}
+        return {"days": days, "providers": rows, "totals": totals, "daily": self._store.usage_daily(since), "by_day": self._usage_by_day(since)}
+
+    def _usage_by_day(self, since: float) -> list[dict[str, Any]]:
+        """Per day (newest first) with activity: totals and one entry per provider, priced like ``usage_overview``."""
+        days: dict[str, dict[str, Any]] = {}
+        for row in self._store.usage_daily_models(since):
+            priced = row["price_in"] is not None or row["price_out"] is not None
+            cost = (row["tokens_in"] * (row["price_in"] or 0) + row["tokens_out"] * (row["price_out"] or 0)) / 1_000_000 if priced else None
+            day = days.setdefault(row["day"], {"day": row["day"], "calls": 0, "errors": 0, "tokens_in": 0, "tokens_out": 0, "cost": None, "_providers": {}})
+            prov = day["_providers"].setdefault(row["provider"], {"provider": row["provider"], "calls": 0, "errors": 0, "tokens_in": 0, "tokens_out": 0, "cost": None})
+            for entry in (day, prov):
+                for key in ("calls", "errors", "tokens_in", "tokens_out"):
+                    entry[key] += row[key]
+                if cost is not None:
+                    entry["cost"] = (entry["cost"] or 0) + cost
+        out = []
+        for day in days.values():
+            providers = sorted(day.pop("_providers").values(), key=lambda p: p["tokens_in"] + p["tokens_out"], reverse=True)
+            out.append({**day, "providers": providers})
+        return sorted(out, key=lambda d: d["day"], reverse=True)
 
     def usage_report(self, days: int = 7) -> list[dict[str, Any]]:
         """Usage grouped by day, provider, model and agent."""

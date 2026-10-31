@@ -5,7 +5,7 @@
 
 AIFRED is a small, from-scratch personal agent: persistent memory, skills that improve over time, tools (including MCP servers), a local knowledge base, and several ways to talk to it, all in **one Python process, one SQLite database and one container**. It runs on your hardware, uses the LLMs you choose (local or hosted) and is configured entirely from a web dashboard.
 
-> **Status:** early release (`0.7.3`). It is tested (1,050+ automated tests) and the Telegram gateway, three MCP servers and a hosted vision model have been checked against real services, but expect rough edges and please report them.
+> **Status:** early release (`0.8.0`). It is tested (1,050+ automated tests) and the Telegram gateway, three MCP servers and a hosted vision model have been checked against real services, but expect rough edges and please report them.
 
 ## Links
 
@@ -55,7 +55,7 @@ Then open <http://127.0.0.1:8700>, sign in, and on **Models** add a provider (fo
 
 | Tag | Meaning |
 | --- | --- |
-| `0.7.3` | A specific version (pin this one for repeatable deployments) |
+| `0.8.0` | A specific version (pin this one for repeatable deployments) |
 | `0.7.0`, `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0`, `0.1.0.dev0` | Earlier builds |
 | `latest` | The most recent build |
 

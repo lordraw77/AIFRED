@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from aifred import ssh_remote
 from aifred.hardening import spawn_guard, track, untrack
 from aifred.rag import RagError
 from aifred.skills import SkillError
@@ -496,6 +497,80 @@ def terminal(ctx: ToolContext, args: TerminalArgs) -> str:
     text = raw[:TERMINAL_OUTPUT_CAP].decode("utf-8", errors="replace")
     if len(raw) > TERMINAL_OUTPUT_CAP:
         text += "\n[output cut]"
+    footer = f"[timed out after {timeout} s, killed]" if timed_out else f"[exit code: {code}]"
+    return f"{text.rstrip()}\n{footer}".lstrip("\n")
+
+
+# mcp_reply (the answer to an MCP server's question)
+
+
+class McpReplyArgs(BaseModel):
+    """Arguments of mcp_reply."""
+
+    request: str = Field(min_length=1, max_length=32, description="The request identifier given with the question")
+    answers: dict[str, dict[str, Any]] = Field(
+        description='For each question key, {"action": "accept" | "decline" | "cancel", "content": {field: value}} with the values the USER gave',
+    )
+
+
+@registry.tool(
+    "mcp_reply", "mcp",
+    "Send the user's answers to a question an MCP server asked in the middle of a tool call, and let the call finish. "
+    "Use it only after asking the user; never make up answers.",
+    McpReplyArgs, available=lambda ctx: ctx.services.mcp_manager.has_questions(),
+)
+def mcp_reply(ctx: ToolContext, args: McpReplyArgs) -> str:
+    """Continue the tool call that stopped at an elicitation."""
+    return ctx.services.mcp_manager.reply(args.request, args.answers)
+
+
+# ssh (remote terminal)
+
+
+class SshHostsArgs(BaseModel):
+    """Arguments of ssh_hosts."""
+
+
+class SshRunArgs(BaseModel):
+    """Arguments of ssh_run."""
+
+    host: str = Field(min_length=1, max_length=32, description="Host name as listed by ssh_hosts")
+    command: str = Field(min_length=1, max_length=10_000, description="Shell command to run on that host")
+    timeout: int | None = Field(default=None, ge=1, le=3600, description="Seconds before the command is killed")
+
+
+def _ssh_ready(ctx: ToolContext) -> bool:
+    cfg = ctx.services.config
+    return bool(ssh_remote.parse_hosts(cfg.get("SSH_HOSTS"))[0]) and cfg.is_set("SSH_PRIVATE_KEY")
+
+
+@registry.tool("ssh_hosts", "ssh", "List the remote hosts the agent can run commands on over SSH.", SshHostsArgs, available=_ssh_ready)
+def ssh_hosts(ctx: ToolContext, args: SshHostsArgs) -> str:
+    """Names, accounts and descriptions of the configured hosts."""
+    hosts, problems = ssh_remote.parse_hosts(ctx.services.config.get("SSH_HOSTS"))
+    lines = [f"{h.name}: {h.user}@{h.host}:{h.port}" + (f" - {h.description}" if h.description else "") for h in hosts.values()]
+    return "\n".join(lines + [f"[ignored] {p}" for p in problems]) or "No hosts are configured."
+
+
+@registry.tool("ssh_run", "ssh", "Run a shell command on a remote host over SSH and return its output and exit code.", SshRunArgs, available=_ssh_ready)
+def ssh_run(ctx: ToolContext, args: SshRunArgs) -> str:
+    """Run one command on a configured host; same blocklist, output cap and timeout rules as the local terminal."""
+    cfg = ctx.services.config
+    hosts, _ = ssh_remote.parse_hosts(cfg.get("SSH_HOSTS"))
+    host = hosts.get(args.host)
+    if host is None:
+        raise ToolError(f"unknown host {args.host!r}; configured hosts: {', '.join(hosts) or 'none'}")
+    if why := blocked_reason(args.command):
+        raise ToolError(f"blocked: {why}")
+    key = cfg.get("SSH_PRIVATE_KEY")
+    if not key:
+        raise ToolError("SSH_PRIVATE_KEY is not set")
+    limit = int(cfg.get("SSH_TIMEOUT"))
+    timeout = min(args.timeout or limit, limit * 10)
+    try:
+        text, code, timed_out = ssh_remote.run(host, key, args.command, timeout, workspace(ctx))
+    except ssh_remote.SshError as exc:
+        raise ToolError(str(exc)) from None
     footer = f"[timed out after {timeout} s, killed]" if timed_out else f"[exit code: {code}]"
     return f"{text.rstrip()}\n{footer}".lstrip("\n")
 

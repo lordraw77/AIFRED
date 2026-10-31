@@ -53,6 +53,9 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 | `TOOLSETS_CLI`, `TOOLSETS_TELEGRAM`, `TOOLSETS_API`, `TOOLSETS_WEB` | vuoto (eredita) | L'elenco proprio di un gateway. Gli interruttori di [Tools](#/guide?s=tools) e [MCP](#/guide?s=mcp) li modificano per te. |
 | `TOOLSETS_CRON` | search, web, skills | Toolset delle attività pianificate; aggiungine altri solo per attività di cui ti fidi. |
 | `ENABLE_TERMINAL` | off | Scorciatoia che aggiunge `terminal` (comandi di shell). |
+| `SSH_HOSTS` | vuoto | Host raggiungibili dal toolset `ssh`, un oggetto JSON `{"nome": {"user", "host", "port", "host_key", "description"}}`. `host_key` è obbligatoria (`ssh-keyscan -t ed25519 host`). |
+| `SSH_PRIVATE_KEY` | non impostata | Chiave privata senza passphrase usata per tutti gli host di `SSH_HOSTS` (segreto). |
+| `SSH_TIMEOUT` | 60 | Timeout del comando remoto (s). |
 | `TERMINAL_TIMEOUT` | 60 | Secondi che un comando può durare. |
 | `WEB_ALLOW_PRIVATE` | off | Permette al lettore di pagine di raggiungere indirizzi della tua rete. |
 | `SEARXNG_URL` | vuoto | Indirizzo di un server SearXNG; attiva la ricerca sul web. |
@@ -87,6 +90,10 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 |---|---|---|
 | `MCP_CONNECT_TIMEOUT`, `MCP_CALL_TIMEOUT` | 15, 120 | Timeout predefiniti in secondi. |
 | `MCP_MAX_TOOLS_PER_SERVER` | 40 | Massimo di strumenti presi da un server. |
+| `MCP_ELICITATION` | on | Un server MCP 2026-07-28 può chiederti informazioni nel mezzo di una chiamata (un breve modulo); il modello te le chiede in chat. I moduli per password, token o chiavi sono sempre rifiutati. |
+| `MCP_SAMPLING` | off | Un server MCP 2026-07-28 può far scrivere del testo al modello di AIFRED. Consuma i tuoi token: solo testo, nessuno strumento. |
+| `MCP_SAMPLING_PER_HOUR` | 20 | Richieste di sampling che tutti i server insieme possono fare in un'ora. |
+| `MCP_SUBSCRIPTIONS` | on | Tiene aperto uno stream `subscriptions/listen` verso i server 2026-07-28 così un elenco di strumenti cambiato è riletto subito. |
 | `MCP_STDIO_COMMANDS` | vuoto | Nomi dei programmi che la dashboard può avviare come server MCP. Vuoto: la funzione è spenta. |
 | `MCP_OAUTH_CLIENT_ID` | vuoto | Client id registrato a mano per l'accesso OAuth. |
 | `MCP_OAUTH_PUBLIC_URL` | vuoto | Indirizzo https pubblico di AIFRED, perché possa servire il suo documento di metadati del client. |

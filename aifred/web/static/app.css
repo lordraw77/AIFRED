@@ -218,7 +218,7 @@ mark { background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .bar-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 96px; gap: 10px; align-items: center; font-size: 13px; }
 .bar-row > span:last-child { text-align: right; }
 .bar { height: 10px; background: var(--bg); border: 1px solid var(--line); }
-.bar > span { display: block; height: 100%; background: var(--accent); }
+.bar > span { display: block; height: 100%; background: var(--accent); width: calc(var(--pct, 0) * 1%); }
 .price { width: 76px; flex: 0 0 auto; }
 .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .skill-card { display: flex; flex-direction: column; gap: 4px; text-align: left; border: 1px solid var(--line); background: var(--surface); padding: 10px 12px; cursor: pointer; min-width: 0; }

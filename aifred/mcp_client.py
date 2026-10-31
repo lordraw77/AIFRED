@@ -16,8 +16,11 @@ import base64
 import json
 import logging
 import re
+import secrets
+import socket
 import ssl
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -40,6 +43,11 @@ ERR_MISSING_CAPABILITY = -32021
 ERR_UNSUPPORTED_VERSION = -32022
 ERR_METHOD_NOT_FOUND = -32601
 _MODERN_ERRORS = {ERR_HEADER_MISMATCH, ERR_MISSING_CAPABILITY, ERR_UNSUPPORTED_VERSION}
+
+MAX_INPUT_ROUNDS = 4
+PENDING_TTL = 600.0
+MAX_PENDING = 20
+_SENSITIVE_FIELD = re.compile(r"pass(word|phrase|wd)?|secret|token|api[_-]?key|credential|private[_-]?key|\bpin\b|\bcvv\b|card[_-]?number", re.I)
 
 _TOKEN_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _SENTINEL_RE = re.compile(r"^=\?base64\?.*\?=$", re.DOTALL)
@@ -225,6 +233,11 @@ class McpClient:
         self.server_name = ""
         self.instructions = ""
         self._tools: dict[str, McpTool] = {}
+        self.capabilities: dict[str, Any] = {}      # declared to a 2026-07-28 server on every request (elicitation, sampling)
+        self.sampler: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+        self._pending: dict[str, _Pending] = {}
+        self._listening: httpx.Response | None = None
+        self._closing = False
 
     # Wire
 
@@ -242,7 +255,7 @@ class McpClient:
         return {
             f"{_META}protocolVersion": self.version,
             f"{_META}clientInfo": {"name": "AIFRED", "version": __version__},
-            f"{_META}clientCapabilities": {},
+            f"{_META}clientCapabilities": dict(self.capabilities),
         }
 
     def _request_headers(self, method: str, name: str | None, extra: dict[str, str] | None) -> dict[str, str]:
@@ -440,6 +453,14 @@ class McpClient:
 
     def close(self) -> None:
         """End the session (when there is one) and release the connection."""
+        self._closing = True
+        stream = self._listening
+        if stream is not None:
+            try:   # shutting the socket down wakes the thread blocked on the stream; closing the response alone does not
+                sock = stream.extensions["network_stream"].get_extra_info("socket")
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:  # noqa: BLE001 - closing must never raise
+                pass
         if self._session:
             try:
                 self._http.delete(self.url, headers=self._request_headers("", None, None), timeout=self._connect_timeout)
@@ -500,10 +521,22 @@ class McpClient:
     def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Call a tool and return its output as text.
 
+        A server on the 2026-07-28 revision may answer ``input_required`` (multi round-trip requests): sampling requests are
+        answered by :attr:`sampler` when there is one, and an elicitation is kept as a pending question whose text goes to the
+        model, which asks the user and continues with :meth:`reply`.
+
         Raises:
             McpError: On transport failure or a JSON-RPC error.
         """
+        return self._run_tool(name, arguments, None, None, 0)
+
+    def _run_tool(self, name: str, arguments: dict[str, Any], responses: dict[str, Any] | None, state: str | None, rounds: int) -> str:
         tool = self._tools.get(name)
+        params: dict[str, Any] = {"name": name, "arguments": arguments}
+        if responses:
+            params["inputResponses"] = responses
+        if state is not None:
+            params["requestState"] = state
         for attempt in (0, 1):
             extra = {}
             if self.modern and tool:
@@ -517,7 +550,7 @@ class McpClient:
                         continue
                     extra[f"Mcp-Param-{header.name}"] = header_value(text)
             try:
-                result = self._call("tools/call", {"name": name, "arguments": arguments}, name=name, extra=extra)
+                result = self._call("tools/call", params, name=name, extra=extra)
             except McpError as exc:
                 if exc.code == ERR_HEADER_MISMATCH and attempt == 0:
                     self.list_tools()  # the tool's schema may have changed
@@ -525,9 +558,199 @@ class McpClient:
                     continue
                 raise
             if result.get("resultType") == "input_required":
-                return "Error: the server asked for further input (sampling, elicitation or roots), which AIFRED does not provide"
+                return self._input_required(name, arguments, result, rounds)
             return format_result(result)
         raise McpError("the server kept rejecting the request headers")  # pragma: no cover - loop always returns or raises
+
+    # Multi round-trip requests (2026-07-28)
+
+    def _input_required(self, name: str, arguments: dict[str, Any], result: dict[str, Any], rounds: int) -> str:
+        requests = result.get("inputRequests")
+        state = result.get("requestState")
+        state = state if isinstance(state, str) else None
+        if not isinstance(requests, dict) or not requests:
+            requests = {}
+            if state is None:
+                return "Error: the server asked for further input without saying what"
+        if rounds >= MAX_INPUT_ROUNDS:
+            return f"Error: the server kept asking for further input ({MAX_INPUT_ROUNDS} rounds); giving up"
+        answered: dict[str, Any] = {}
+        asked: dict[str, dict[str, Any]] = {}
+        for key, request in requests.items():
+            method = request.get("method") if isinstance(request, dict) else None
+            params = request.get("params") if isinstance(request, dict) and isinstance(request.get("params"), dict) else {}
+            if method == "elicitation/create" and "elicitation" in self.capabilities:
+                if params.get("mode") == "url":
+                    answered[key] = {"action": "decline"}   # an out-of-band web flow is never started on the server's say-so
+                elif any(_SENSITIVE_FIELD.search(str(p)) for p in (params.get("requestedSchema") or {}).get("properties", {})):
+                    answered[key] = {"action": "decline"}   # form mode must not collect passwords, tokens or keys
+                else:
+                    asked[str(key)] = params
+            elif method == "sampling/createMessage" and "sampling" in self.capabilities and self.sampler is not None:
+                try:
+                    answered[key] = self.sampler(params)
+                except McpError as exc:
+                    return f"Error: the server asked the client to generate text and it was refused: {exc}"
+            elif method == "roots/list":
+                answered[key] = {"roots": []}
+            else:
+                return f"Error: the server asked for {method or 'something'}, which AIFRED does not provide"
+        if asked:
+            now = time.monotonic()
+            for stale in [t for t, p in self._pending.items() if p.expires < now]:
+                del self._pending[stale]
+            if len(self._pending) >= MAX_PENDING:
+                return "Error: too many unanswered questions from MCP servers; answer or ignore the earlier ones first"
+            token = secrets.token_hex(4)
+            self._pending[token] = _Pending(name, arguments, answered, state, asked, rounds + 1, now + PENDING_TTL)
+            return describe_questions(token, asked)
+        return self._run_tool(name, arguments, answered, state, rounds + 1)
+
+    def reply(self, token: str, answers: dict[str, Any]) -> str:
+        """Continue a tool call that stopped at an elicitation, with the user's answers.
+
+        Args:
+            token: The identifier given with the questions.
+            answers: For each question key ``{"action": "accept" | "decline" | "cancel", "content": {...}}``.
+
+        Raises:
+            McpError: If the question is unknown or expired, an answer is invalid, or the call fails.
+        """
+        pending = self._pending.pop(token, None)
+        if pending is None or pending.expires < time.monotonic():
+            raise McpError("there is no such open question (it expired or was already answered); call the tool again")
+        responses = dict(pending.responses)
+        try:
+            for key, params in pending.asked.items():
+                responses[key] = validate_answer(answers.get(key), params)
+        except McpError:
+            self._pending[token] = pending     # the user can correct the answer
+            raise
+        return self._run_tool(pending.tool, pending.arguments, responses, pending.state, pending.rounds)
+
+    # Subscriptions (2026-07-28)
+
+    def listen(self, on_tools_changed: Callable[[], None]) -> None:
+        """Hold a ``subscriptions/listen`` stream for tool-list changes until the server or the connection ends it.
+
+        Returns normally when the server closes the subscription gracefully.
+
+        Raises:
+            McpError: If the server does not support the stream, refuses it, or the connection drops.
+        """
+        if not self.modern:
+            raise McpError("subscriptions need the 2026-07-28 revision", status=400)
+        request_id = self._next_id()
+        body = {"jsonrpc": "2.0", "id": request_id, "method": "subscriptions/listen",
+                "params": {"_meta": self._meta(), "notifications": {"toolsListChanged": True}}}
+        limits = httpx.Timeout(None, connect=self._connect_timeout, pool=self._connect_timeout)
+        try:
+            with self._http.stream("POST", self.url, json=body, headers=self._request_headers("subscriptions/listen", None, None), timeout=limits) as response:
+                if response.status_code >= 400:
+                    try:
+                        parsed = self._read(response, request_id)
+                    except McpError:
+                        parsed = {}
+                    raise self._error(response.status_code, parsed, f"HTTP {response.status_code}")
+                if response.headers.get("content-type", "").split(";")[0].strip().lower() != "text/event-stream":
+                    raise McpError("the server does not stream subscriptions", status=406)
+                self._listening = response
+                acknowledged = False
+                data: list[str] = []
+                for line in response.iter_lines():
+                    if line.startswith("data:"):
+                        data.append(line[5:].removeprefix(" "))
+                        continue
+                    if line != "" or not data:
+                        continue
+                    message = self._decode("\n".join(data))
+                    data = []
+                    if not isinstance(message, dict):
+                        continue
+                    method = message.get("method")
+                    if method == "notifications/subscriptions/acknowledged":
+                        honoured = (message.get("params") or {}).get("notifications") or {}
+                        if not honoured.get("toolsListChanged"):
+                            raise McpError("the server does not announce tool-list changes", status=406)
+                        acknowledged = True
+                    elif method == "notifications/tools/list_changed" and acknowledged:
+                        on_tools_changed()
+                    elif message.get("id") == request_id and "error" in message:
+                        raise self._error(200, message, "the server refused the subscription")
+                    elif message.get("id") == request_id and "result" in message:
+                        return
+        except httpx.HTTPError as exc:
+            if self._closing:
+                return
+            raise McpError(f"the subscription stream broke: {type(exc).__name__}") from None
+        finally:
+            self._listening = None
+        if not self._closing:
+            raise McpError("the subscription stream ended without a closing answer")
+
+
+@dataclass
+class _Pending:
+    """A tool call waiting for the user's answer to an elicitation."""
+
+    tool: str
+    arguments: dict[str, Any]
+    responses: dict[str, Any]
+    state: str | None
+    asked: dict[str, dict[str, Any]]
+    rounds: int
+    expires: float
+
+
+def describe_questions(token: str, asked: dict[str, dict[str, Any]]) -> str:
+    """The text the model gets for an elicitation: what the server asks, the fields, and how to continue."""
+    lines = [f"The MCP server needs information from the user before it can finish (request {token}). Ask the user, then call mcp_reply."]
+    for key, params in asked.items():
+        schema = params.get("requestedSchema") if isinstance(params.get("requestedSchema"), dict) else {}
+        required = set(schema.get("required") or [])
+        lines.append(f'- question "{key}": {str(params.get("message", ""))[:500]}')
+        for field_name, spec in (schema.get("properties") or {}).items():
+            spec = spec if isinstance(spec, dict) else {}
+            kind = spec.get("type", "string")
+            options = f" one of {spec['enum']}" if isinstance(spec.get("enum"), list) else ""
+            note = f" ({str(spec.get('description'))[:120]})" if spec.get("description") else ""
+            lines.append(f"    field {str(field_name)[:60]}: {kind}{options}{' (required)' if field_name in required else ''}{note}")
+    lines.append('The user may also decline: answer with action "decline". Never invent the answers yourself.')
+    return "\n".join(lines)
+
+
+def validate_answer(answer: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Check one answer against the elicitation's form and return the ``ElicitResult`` to send.
+
+    Raises:
+        McpError: If the answer is missing, malformed or does not fit the form.
+    """
+    if not isinstance(answer, dict) or answer.get("action") not in ("accept", "decline", "cancel"):
+        raise McpError('each answer needs an "action": accept, decline or cancel')
+    if answer["action"] != "accept":
+        return {"action": answer["action"]}
+    schema = params.get("requestedSchema") if isinstance(params.get("requestedSchema"), dict) else {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    content = answer.get("content")
+    if not isinstance(content, dict):
+        raise McpError('an accepted answer needs "content", an object with the form fields')
+    out: dict[str, Any] = {}
+    for field_name, spec in properties.items():
+        spec = spec if isinstance(spec, dict) else {}
+        if field_name not in content:
+            if field_name in (schema.get("required") or []):
+                raise McpError(f"the field {field_name!r} is required")
+            continue
+        value, kind = content[field_name], spec.get("type", "string")
+        ok = (isinstance(value, bool) if kind == "boolean" else isinstance(value, int) and not isinstance(value, bool) if kind == "integer"
+              else isinstance(value, (int, float)) and not isinstance(value, bool) if kind == "number"
+              else isinstance(value, list) and all(isinstance(v, str) for v in value) if kind == "array" else isinstance(value, str))
+        if not ok:
+            raise McpError(f"the field {field_name!r} must be of type {kind}")
+        if isinstance(spec.get("enum"), list) and kind != "array" and value not in spec["enum"]:
+            raise McpError(f"the field {field_name!r} must be one of {spec['enum']}")
+        out[field_name] = value
+    return {"action": "accept", "content": out}
 
 
 class OAuthMcpClient(McpClient):

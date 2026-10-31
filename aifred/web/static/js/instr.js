@@ -42,6 +42,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
   const hint = h("input", { type: "text", placeholder: "Hint for the draft, for example: my local Linux servers", maxlength: "500" });
   const draftBox = h("div", { class: "notice", hidden: true });
   const memory = h("input", { type: "checkbox" });
+  const sessions = h("input", { type: "checkbox" });
   const update = () => { counter.textContent = `${area.value.length} characters`; counter.className = `hint${area.value.length > SOFT_LIMIT ? " over" : ""}`; };
   area.addEventListener("input", update); update();
 
@@ -49,7 +50,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
   const draft = async (mode, trigger) => {
     const server = draftServer ? draftServer() : null;
     if (draftServer && !server) return;
-    const body = { scope, hint: hint.value.trim(), mode, current: area.value, use_memory: memory.checked };
+    const body = { scope, hint: hint.value.trim(), mode, current: area.value, use_memory: memory.checked, use_sessions: sessions.checked };
     if (server) body.server = server;
     const r = await attempt(() => post("/api/instructions/suggest", body));
     if (!r) return;
@@ -115,7 +116,7 @@ export function instructionEditor({ scope, text, enabled = true, draftServer = n
 
   const node = h("div", { class: "stack" },
     area, h("div", { class: "row between" }, counter, h("label", { class: "check" }, on, "Use it in the prompt")),
-    h("div", { class: "row" }, hint, generate, improve, shorten, draftServer ? null : test, draftServer ? null : refine), h("label", { class: "check", title: "Gives the model your profile and notes so a draft can use names and address ranges. That text goes to the provider of the assist route." }, memory, "Use my profile and notes for the draft"), draftBox, resultBox,
+    h("div", { class: "row" }, hint, generate, improve, shorten, draftServer ? null : test, draftServer ? null : refine), h("label", { class: "check", title: "Gives the model your profile and notes so a draft can use names and address ranges. That text goes to the provider of the assist route." }, memory, "Use my profile and notes for the draft"), h("label", { class: "check", title: "Gives the model recent requests from your chats that look related to this target but were answered without it (web, CLI and API chats only, never an open Telegram bot), so the draft covers what the assistant missed. Those requests go to the provider of the assist route." }, sessions, "Use my recent chats that missed this target"), draftBox, resultBox,
     standalone ? h("div", { class: "row" }, save, text ? remove : null) : null);
   node.read = () => ({ text: area.value, enabled: on.checked });
   return node;

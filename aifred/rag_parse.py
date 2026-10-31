@@ -19,8 +19,8 @@ import zlib
 from typing import Any
 from xml.etree import ElementTree as ET
 
-KINDS = ("pdf", "docx", "pptx", "xlsx", "odt", "ods", "odp", "jpeg", "png", "webp")
-OFFICE_KINDS = ("docx", "pptx", "xlsx", "odt", "ods", "odp")
+KINDS = ("pdf", "docx", "pptx", "xlsx", "odt", "ods", "odp", "doc", "xls", "ppt", "epub", "eml", "jpeg", "png", "webp")
+OFFICE_KINDS = ("docx", "pptx", "xlsx", "odt", "ods", "odp", "doc", "xls", "ppt", "epub", "eml")
 IMAGE_KINDS = ("jpeg", "png", "webp")
 MIME = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
@@ -56,7 +56,13 @@ def sniff(data: bytes) -> str | None:
         return "webp"
     if data.startswith(b"PK\x03\x04"):
         return _sniff_zip(data)
-    return None
+    if data.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        from aifred.rag_legacy import ole_kind
+
+        return ole_kind(data)
+    from aifred.rag_legacy import looks_like_eml
+
+    return "eml" if looks_like_eml(data) else None
 
 
 def magic_kind(head: bytes) -> str | None:
@@ -67,6 +73,8 @@ def magic_kind(head: bytes) -> str | None:
         return "image"
     if head.startswith(b"PK\x03\x04"):
         return "zip"
+    if head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return "ole"
     return None
 
 
@@ -80,6 +88,7 @@ def _sniff_zip(data: bytes) -> str | None:
                     "application/vnd.oasis.opendocument.text": "odt",
                     "application/vnd.oasis.opendocument.spreadsheet": "ods",
                     "application/vnd.oasis.opendocument.presentation": "odp",
+                    "application/epub+zip": "epub",
                 }.get(mime)
             if "word/document.xml" in names:
                 return "docx"
@@ -757,7 +766,11 @@ def run(command: dict[str, Any], data: bytes) -> dict[str, Any]:
             raise ParseError("the content is not a PDF, Office, OpenDocument or image file")
         if kind in IMAGE_KINDS:
             return parse_image(kind, data, limits)
-        return PARSERS[kind](data, limits)
+        if kind in PARSERS:
+            return PARSERS[kind](data, limits)
+        from aifred.rag_legacy import PARSERS as LEGACY
+
+        return LEGACY[kind](data, limits)
     except ParseError as exc:
         return {"error": str(exc)}
     except RecursionError:

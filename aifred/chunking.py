@@ -25,7 +25,7 @@ TEXT_EXTENSIONS = frozenset(
 )
 TEXT_NAMES = frozenset({"dockerfile", "makefile", "readme", "license", "changelog", "notice"})
 SECOND_STEP_EXTENSIONS = frozenset(
-    ".pdf .docx .xlsx .pptx .odt .ods .odp .doc .xls .ppt .jpg .jpeg .png .webp .gif .bmp .tif .tiff".split()
+    ".pdf .docx .xlsx .pptx .odt .ods .odp .doc .xls .ppt .epub .eml .jpg .jpeg .png .webp .gif .bmp .tif .tiff".split()
 )
 
 _FENCE_RE = re.compile(r"^\s{0,3}(```+|~~~+)")

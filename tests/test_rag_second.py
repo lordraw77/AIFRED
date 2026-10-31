@@ -230,7 +230,7 @@ def test_the_type_is_decided_by_the_bytes_not_the_name(kb: KB, vision: FakeLLM) 
         kb.rag.add_document("lab", "report.docx", b"this is plain text")
     with pytest.raises(RagError, match="archives are not supported"):
         kb.rag.add_document("lab", "data.zip", f.zipped({"a.txt": "x"}))
-    with pytest.raises(RagError, match="legacy .xls"):
+    with pytest.raises(RagError, match="not a valid .xls"):
         kb.rag.add_document("lab", "old.xls", b"\xd0\xcf\x11\xe0")
     with pytest.raises(RagError, match="convert the image"):
         kb.rag.add_document("lab", "photo.gif", b"GIF89a")
@@ -269,7 +269,7 @@ def test_folder_scan_reads_the_new_formats(kb: KB, vision: FakeLLM) -> None:
     (folder / "fake.pdf").write_bytes(b"not a pdf")
     summary = kb.rag.scan()
     reasons = {s["path"]: s["reason"] for s in summary["skipped"]}
-    assert summary["queued"] == 2 and "legacy .doc" in reasons["lab/old.doc"] and "not a valid .pdf" in reasons["lab/fake.pdf"]
+    assert summary["queued"] == 2 and "not a valid .doc" in reasons["lab/old.doc"] and "not a valid .pdf" in reasons["lab/fake.pdf"]
     kb.index()
     assert {d["source"]: (d["kind"], d["status"]) for d in kb.rag.documents("lab")} == {"manual.pdf": ("pdf", "ready"), "shot.png": ("image", "ready")}
 
