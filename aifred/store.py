@@ -23,6 +23,7 @@ from aifred.store_instructions import InstructionStoreMixin
 from aifred.store_library import LibraryStoreMixin
 from aifred.store_llm import LLMStoreMixin
 from aifred.store_mcp import McpStoreMixin
+from aifred.store_memory import MemoryStoreMixin
 from aifred.store_rag import RagStoreMixin
 from aifred.store_sched import SchedulerStoreMixin
 
@@ -482,6 +483,65 @@ _MIGRATIONS: list[str] = [
         INSERT INTO library_fts(rowid, title, content, tags) VALUES (new.id, new.title, new.content, new.tags);
     END;
     """,
+    # 14: long-term memory, facts the assistant keeps between sessions (docs/adr.md ADR-005)
+    """
+    CREATE TABLE mem_facts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'fact',
+        text TEXT NOT NULL,
+        importance REAL NOT NULL DEFAULT 0.5,
+        source TEXT NOT NULL DEFAULT 'auto',
+        source_session TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        superseded_by INTEGER,
+        embedding BLOB,
+        emb_model TEXT,
+        created REAL NOT NULL,
+        updated REAL NOT NULL,
+        last_used REAL,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        archived REAL
+    );
+    CREATE INDEX idx_mem_facts_subject ON mem_facts(subject, status);
+    CREATE VIRTUAL TABLE mem_facts_fts USING fts5(
+        text, content='mem_facts', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER mem_facts_ai AFTER INSERT ON mem_facts BEGIN
+        INSERT INTO mem_facts_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER mem_facts_ad AFTER DELETE ON mem_facts BEGIN
+        INSERT INTO mem_facts_fts(mem_facts_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER mem_facts_au AFTER UPDATE OF text ON mem_facts BEGIN
+        INSERT INTO mem_facts_fts(mem_facts_fts, rowid, text) VALUES ('delete', old.id, old.text);
+        INSERT INTO mem_facts_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TABLE mem_links (
+        fact_id INTEGER NOT NULL REFERENCES mem_facts(id) ON DELETE CASCADE,
+        entity TEXT NOT NULL,
+        PRIMARY KEY (fact_id, entity)
+    );
+    CREATE INDEX idx_mem_links_entity ON mem_links(entity);
+    CREATE TABLE mem_episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        upto INTEGER NOT NULL DEFAULT 0,
+        embedding BLOB,
+        emb_model TEXT,
+        created REAL NOT NULL,
+        UNIQUE (subject, session_id)
+    );
+    CREATE TABLE mem_cursor (
+        session_id TEXT PRIMARY KEY,
+        last_message_id INTEGER NOT NULL DEFAULT 0,
+        turns INTEGER NOT NULL DEFAULT 0,
+        updated REAL NOT NULL
+    );
+    """,
 ]
 
 
@@ -492,7 +552,7 @@ def _like_prefix(prefix: str | None) -> str:
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, SchedulerStoreMixin, AgentStoreMixin, LibraryStoreMixin):
+class Store(LLMStoreMixin, RagStoreMixin, McpStoreMixin, InstructionStoreMixin, SchedulerStoreMixin, AgentStoreMixin, LibraryStoreMixin, MemoryStoreMixin):
     """Thread-safe access to the AIFRED database.
 
     Args:

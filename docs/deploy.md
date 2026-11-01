@@ -65,10 +65,10 @@ Add servers on the dashboard (MCP page, phase 6) or with `PUT /api/mcp/servers/<
 
 ## Using the published image
 
-The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.8.0` and `latest`, linux/amd64; `0.7.3`, `0.7.2`, `0.7.1`, `0.7.0`, `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
+The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.9.0` and `latest`, linux/amd64; `0.8.0`, `0.7.3`, `0.7.2`, `0.7.1`, `0.7.0`, `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
 
 ```bash
-echo 'AIFRED_IMAGE=lordraw/aifred' >> .env     # and AIFRED_VERSION=0.8.0 to pin a version
+echo 'AIFRED_IMAGE=lordraw/aifred' >> .env     # and AIFRED_VERSION=0.9.0 to pin a version
 AIFRED_PULL=1 make docker/run                  # pulls the image instead of building it
 ```
 
@@ -100,6 +100,16 @@ Things to know:
 - **Disk and backups.** Expect about 55 MB per 10,000 chunks at 768 dimensions (an estimate). Documents live in the `aifred-data` volume, so `make backup` covers them, in clear text like conversations.
 - **Changing the embedding model** makes the vectors of the collection stale. Searches keep working (keywords only for the stale part) while you run a re-index (`POST /api/rag/reindex`), which embeds everything again; on a paid provider that costs tokens.
 - **A document that stays `waiting`** means the embedding service is down or its token budget is reached; it is retried by itself with growing delays. `error` documents show the reason; fix the cause, then re-index or upload again.
+
+## Long-term memory
+
+Facts the assistant keeps between conversations need no extra service: they are rows in the same SQLite file (so `make backup` covers them, in clear text like conversations) and are searched in memory, a few MB per ten thousand facts.
+
+- **Off until you turn it on.** Set `AUTO_MEMORY` to `owner` (your own chats) or `all` (also the open Telegram bot's users, each with a memory of their own, and the sub-agents in `MEMORY_AGENTS`) on the Facts page or in Config.
+- **Where the text goes.** Reading a conversation sends its text to the model of `MEMORY_EXTRACT_ROUTE`; when that is empty, to the conversation's own model. For a conversation that must stay on your machine, point the setting at a local route and turn `MEMORY_EXTRACT_FALLBACK` off.
+- **Meaning, not only keywords.** Set `MEMORY_EMBED_PROVIDER` and `MEMORY_EMBED_MODEL` (they default to the knowledge base's). Changing the model makes the vectors again by itself, a few dozen per minute.
+- **Retention.** Facts not recalled for 180 days are archived and deleted 30 days later (`MEMORY_RETENTION_DAYS`, `MEMORY_GRACE_DAYS`).
+- **Moving or auditing it.** The Facts page exports everything as JSON or Markdown and imports a JSON export with a preview.
 
 ## Backup and restore
 
@@ -147,7 +157,7 @@ Read by **docker compose** and the scripts from `.env` (or the shell; the shell 
 | `AIFRED_OPENBAO_ADDR`, `AIFRED_OPENBAO_MOUNT`, `AIFRED_OPENBAO_KEY` | `http://openbao:8200`, `transit`, `aifred` | Where and how AIFRED reaches OpenBao |
 | `AIFRED_BIND`, `AIFRED_PORT` | `127.0.0.1`, `8700` | Interface and port published on the host |
 | `AIFRED_MEM_LIMIT` | `1g` | Memory limit of the AIFRED container. The knowledge base caches vectors in memory (`RAG_CACHE_MB`, 512 MB by default; 307 MB for 100,000 chunks of 768 dimensions) and the document parsers run inside the same limit. Raise this together with `RAG_CACHE_MB` and `RAG_MAX_CHUNKS` |
-| `AIFRED_VERSION` | `0.8.0` | Image tag |
+| `AIFRED_VERSION` | `0.9.0` | Image tag |
 | `OPENBAO_VERSION`, `SEARXNG_VERSION` | `2.7.1`, `2026.10.24-ef0ec03da` | Image tags of the other services |
 | `SEARXNG_SECRET` | generated | SearXNG server secret (profile `search`) |
 | `AIFRED_SETUP_ADMIN_CREATED` | set by `setup.sh` | Marker that the admin exists; do not edit |
@@ -185,7 +195,7 @@ Passed into the **container**: exactly the `AIFRED_*` variables listed in `docke
 ```bash
 docker create --name aifred-live --entrypoint sh --user 10001 -e HOME=/tmp --tmpfs /tmp:size=128m,mode=1777 \
   -e AIFRED_TEST_OPENBAO_ADDR=http://openbao:8200 -e AIFRED_TEST_OPENBAO_ROLE_ID -e AIFRED_TEST_OPENBAO_SECRET_ID \
-  -v "$PWD/tests:/t/tests:ro" -v "$PWD/aifred:/t/aifred:ro" -w /t aifred:0.8.0 \
+  -v "$PWD/tests:/t/tests:ro" -v "$PWD/aifred:/t/aifred:ro" -w /t aifred:0.9.0 \
   -c 'pip install -q --target /tmp/pt pytest==9.1.1 && PYTHONPATH=/t:/tmp/pt python -m pytest -q -p no:cacheprovider tests/test_openbao_live.py'
 docker network connect aifred_vault aifred-live && docker start -a aifred-live; docker rm aifred-live
 ```

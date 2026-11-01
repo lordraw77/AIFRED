@@ -98,6 +98,24 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 | `MCP_OAUTH_CLIENT_ID` | empty | Client id registered by hand for OAuth sign-in. |
 | `MCP_OAUTH_PUBLIC_URL` | empty | Public https address of AIFRED, so it can serve its client metadata document. |
 
+### memory
+| Setting | Default | Meaning |
+|---|---|---|
+| `AUTO_MEMORY` | off | Long-term memory: facts are extracted from conversations and recalled in later ones. `off`: nothing is stored; `owner`: only your own chats; `all`: also other people's chats and sub-agents, each keeping its own facts. |
+| `MEMORY_EXTRACT_ROUTE` | empty | The route whose model extracts the facts (empty: the conversation's own route). The conversation text is sent to it, so choose who receives it. |
+| `MEMORY_EXTRACT_FALLBACK` | on | If the extraction route is unavailable, use the conversation's own route, which already received the conversation. |
+| `MEMORY_AGENTS` | empty | Sub-agents, by name, that keep their own long-term memory when `AUTO_MEMORY` is `all`; the others start from nothing every time. |
+| `MEMORY_EVERY_TURNS` | 12 | New turns after which a conversation is read for facts; it is also read when it ends or goes idle. |
+| `MEMORY_IDLE_MINUTES` | 30 | Idle time after which a conversation counts as ended. |
+| `MEMORY_MAX_FACTS_PER_RUN` | 8 | Most facts one extraction may produce. |
+| `MEMORY_EMBED_PROVIDER` | empty | Provider of the embedding model for facts (empty: the knowledge base's; with none, facts are found by keywords only). |
+| `MEMORY_EMBED_MODEL` | empty | Embedding model for facts (empty: the knowledge base's). |
+| `MEMORY_RECALL_K` | 6 | Most facts added to a request. |
+| `MEMORY_RECALL_TOKENS` | 600 | Length limit of the recalled facts added to a request, in tokens. |
+| `MEMORY_RECALL_MIN_SIMILARITY` | 0.30 | Facts below this cosine similarity are not recalled by vector search. |
+| `MEMORY_RETENTION_DAYS` | 180 | Facts not recalled for this many days are archived (0: keep for ever). |
+| `MEMORY_GRACE_DAYS` | 30 | Days an archived fact can still be restored before it is deleted (0: delete at once). |
+
 ### library
 | Setting | Default | Meaning |
 |---|---|---|

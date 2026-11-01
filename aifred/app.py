@@ -25,6 +25,7 @@ from aifred.rag import RagService, RagWorker
 from aifred.review import ReviewService
 from aifred.assist import AssistService
 from aifred.agents import AgentService
+from aifred.memory_service import MemoryService
 from aifred.scheduler import SchedulerService
 from aifred.skills import SkillStore
 from aifred.tools.registry import ToolRegistry
@@ -164,6 +165,7 @@ class Services:
     mcp_manager: McpManager = field(init=False)
     mcp_sampler: Sampler = field(init=False)
     library: LibraryService = field(init=False)
+    ltm: MemoryService = field(init=False)
 
     def __post_init__(self) -> None:
         self.review = ReviewService(self)
@@ -173,6 +175,7 @@ class Services:
         self.agents = AgentService(self)
         self.assist = AssistService(self)
         self.library = LibraryService(self)
+        self.ltm = MemoryService(self)
         self.mcp = McpService(self.store, self.vault, self.config, self.settings.data_dir / "mcp-stdio")
         self.mcp_sampler = Sampler(self)
         self.mcp_manager = McpManager(self.mcp, self.store, sampler=self.mcp_sampler.sample)
@@ -233,6 +236,7 @@ class Services:
     def close(self) -> None:
         """Release resources."""
         self.scheduler.stop()
+        self.ltm.stop()
         self.review.shutdown()
         self.mcp_manager.stop()
         self.store.close()
@@ -244,7 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Args:
         settings: Bootstrap settings; read from the environment when omitted.
     """
-    from aifred.gateways import api, api_agents, api_chat, api_connectors, api_library, api_llm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
+    from aifred.gateways import api, api_agents, api_chat, api_connectors, api_library, api_llm, api_ltm, api_data, api_instructions, api_mcp, api_openai, api_rag, api_sched, api_system
 
     services = Services.open(settings or Settings())
     try:
@@ -294,6 +298,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         services.agents.interrupted()
         sync_rag_worker()
         sync_scheduler()
+        services.ltm.start()
         services.start_mcp()
         await telegram.start()
         try:
@@ -317,6 +322,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_sched.router)
     app.include_router(api_agents.router)
     app.include_router(api_library.router)
+    app.include_router(api_ltm.router)
     app.include_router(api_system.router)
     app.include_router(api_data.router)
     app.include_router(api_instructions.router)

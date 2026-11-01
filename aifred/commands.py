@@ -18,6 +18,7 @@ from aifred.router import RouteError
 from aifred.instructions import InstructionError, first_sentence
 from aifred.mcp import McpConfigError
 from aifred.agents import AgentError
+from aifred.memory_service import session_subjects
 from aifred.scheduler import SchedulerError, chat_of_session
 from aifred.tools.registry import ToolContext
 from aifred.writes import undo_entry, WriteError, apply_pending, describe_pending, reject_pending
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
     from aifred.app import Services
 
 SESSION_LIST = 10
-RESTRICTED_COMMANDS = frozenset({"start", "help", "new", "think"})
+RESTRICTED_COMMANDS = frozenset({"start", "help", "new", "think", "forget"})
 _COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_]*)(?:@\w+)?(?:\s+(.*))?$", re.DOTALL)
 
 
@@ -94,7 +95,7 @@ class Commands:
         self._table: dict[str, Callable[[str, Context], Awaitable[str | Reply]]] = {
             "start": self._start, "help": self._help, "new": self._new, "sessions": self._sessions, "think": self._think,
             "model": self._model, "kb": self._kb, "pending": self._pending, "approve": self._approve, "reject": self._reject,
-            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "assist": self._assist, "cron": self._cron, "agent": self._agent, "agents": self._agents, "quit": self._quit,
+            "mcp": self._mcp, "refine": self._refine, "journey": self._journey, "instructions": self._instructions, "assist": self._assist, "cron": self._cron, "agent": self._agent, "agents": self._agents, "forget": self._forget, "quit": self._quit,
         }
 
     @staticmethod
@@ -135,13 +136,29 @@ class Commands:
             "instructions": "[reload|<name>] what each tool group is for", "assist": "<mcp:name|toolset:name> [hint] draft or improve its instruction and score it (saves nothing)",
             "agent": "<name> <task> hand a task to a sub-agent", "agents": "the sub-agents you can use",
             "cron": "[add <name> | <schedule> | <prompt>|pause|resume|run|remove <name>] scheduled tasks", "pending": "writes waiting for your approval", "approve": "<id> apply a pending write", "reject": "<id> discard one",
+            "forget": "[confirm] delete everything I remember about you from earlier conversations",
             "quit": "leave the CLI",
         }
         return "Commands:\n" + "\n".join(f"/{n} - {info[n]}" for n in self.available(ctx))
 
     async def _new(self, args: str, ctx: Context) -> Reply:
         self._s.agent.reset_prompt(ctx.session_id)
+        self._s.ltm.session_ended(ctx.session_id)  # the conversation just closed is read for facts on the memory worker
         return Reply("Started a new conversation.", session_id=new_session_id(ctx.source, ctx.session_id))
+
+    async def _forget(self, args: str, ctx: Context) -> str:
+        subjects = session_subjects(ctx.session_id, ctx.source, ctx.restricted)
+        if not subjects:
+            return "There is nothing I could have remembered about this conversation."
+        counts = {s: len(self._s.ltm.backend.list_facts([s], status=None, limit=100_000)) for s in subjects}
+        total = sum(counts.values())
+        if args.strip().lower() != "confirm":
+            return (f"I remember {total} {'fact' if total == 1 else 'facts'} from earlier conversations. "
+                    "Send /forget confirm to delete them for good." if total else "I remember nothing from earlier conversations.")
+        for subject in subjects:
+            await asyncio.to_thread(self._s.ltm.backend.forget_subject, subject)
+        self._s.store.journal_add("facts", "forget", f"{total} facts of {', '.join(subjects)}", ctx.session_id, "applied", {})
+        return f"Done. I forgot {total} {'fact' if total == 1 else 'facts'}."
 
     async def _quit(self, args: str, ctx: Context) -> Reply:
         return Reply("Bye.", quit=True)

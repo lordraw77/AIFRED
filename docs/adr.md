@@ -152,3 +152,44 @@ The second step must ingest PDF, Office documents (docx, xlsx, pptx, odt, ods, o
 1. A local OCR engine becomes preferable to a vision model (cost, latency, accuracy on dense scans): add tesseract behind the same interface.
 2. Layout matters (columns, forms, tables in scanned pages): consider a layout-aware parser in a separate container.
 3. Parser vulnerabilities in `pypdfium2` or `pypdf` make a separate parsing container worthwhile.
+
+## ADR-005: long-term memory beyond MEMORY.md, and whether it needs SurrealDB
+
+**Date:** 1 November 2026. **Status:** accepted: SQLite behind a `MemoryBackend` interface; revisit on the triggers below.
+
+### Context
+
+`MEMORY.md` and `USER.md` are curated notes of about 3.5 thousand characters, sent with every request. They cannot hold what a person tells an assistant over months, and nothing is remembered automatically between sessions. SurrealDB was proposed as a store for memory and context, for its graph, vector and full-text search in one engine.
+
+### Options
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Keep only the two files | Nothing to build | Capacity of two notes; no automatic memory |
+| B. A fact store in SQLite (FTS5, numpy vectors, an entity link table) behind a `MemoryBackend` interface | No new service, secret or volume; same backup as everything else; same search approach as the knowledge base (ADR-003); fits a single user for tens of thousands of facts | Graph hops are joins, not a graph engine; no remote access |
+| C. SurrealDB for everything | Native graph, vector and text queries; one store | A second service to run, secure (its credentials would be another secret) and back up; a new query language and client; BSL licence; the corpus is small, so the gain is marginal today |
+| D. SurrealDB only for long-term memory, as an optional backend | Can be tried without touching the rest | Same costs as C for that part, plus two implementations to keep equal |
+
+### Decision
+
+**B.** Facts live in four SQLite tables (`mem_facts` with an FTS5 index, `mem_links`, `mem_episodes`, `mem_cursor`; migration 14). Everything above storage talks to the `MemoryBackend` protocol, so option D remains a drop-in later. The curated files stay as they are: always in the prompt, written by the person or the review. Facts are the second level: found by search, added to a request only when relevant.
+
+- **Whose facts.** Each fact has one *subject*: `owner`, `user:<id>`, `chat:<id>` or `agent:<name>`. Every read names the subjects it may see; a restricted Telegram chat sees its own `user:` and `chat:`, never `owner`; a sub-agent sees only its own. The open bot's users therefore get a memory of their own without touching the owner's.
+- **Writing.** A model reads the new part of a conversation after `MEMORY_EVERY_TURNS` turns, when `/new` closes it and when it has been idle. It returns JSON; code then checks each fact (length, kind, the injection scanner, a secret filter), merges near-duplicates, and lets a correction supersede an older fact. The route is `MEMORY_EXTRACT_ROUTE`, empty by default; when it is empty or unavailable the conversation's own route is used (`MEMORY_EXTRACT_FALLBACK`), which has already received the text, so the fallback exposes nothing new. Tool output is never read.
+- **Reading.** Per turn: full-text and vector search fused with reciprocal rank fusion, weighted by recency and importance, plus one hop over shared entity names; at most `MEMORY_RECALL_K` facts and `MEMORY_RECALL_TOKENS` tokens, appended to the user message in a block marked as untrusted data. The system prompt is frozen per session, so recall does not touch it and the prompt cache survives. A slow embedding model costs at most four seconds, then the turn goes on with keywords only.
+- **Retention.** A fact not recalled for 180 days is archived; an archived fact is deleted 30 days later (both settings). Vectors carry the model that made them and are rebuilt when the model changes.
+- **Privacy.** `AUTO_MEMORY` is `off` by default. Subjects can be paused or forgotten (`/forget` for anyone, the Facts page for the admin), and the whole store can be exported and imported.
+
+### Consequences
+
+- Adds no dependency and no service. The cost is one extra model call per reading and, with an embedding model, one small embedding call per turn.
+- Searching 5,000 facts with 384-dimension vectors takes a few milliseconds (a test guards 250 ms).
+- Extraction quality depends on the model chosen; the Facts page shows what was kept so it can be corrected.
+
+### Revisit when
+
+1. A subject holds more than about 50,000 facts (vector scan above 100 ms): move vectors to `float16` or an index, as ADR-003.
+2. Questions that need several hops across entities ("which hosts did the projects Marco leads run on?") matter and joins become awkward.
+3. Memory must be shared or read from more than one host (the trigger of ADR-002 as well).
+
+In any of these cases implement `MemoryBackend` on SurrealDB (or PostgreSQL with pgvector, which ADR-002 already weighs) and add it as a compose profile; the interface, the extractor, the recall step and the page do not change.

@@ -56,6 +56,17 @@
       }
     },
     {
+      "id": "facts",
+      "title": {
+        "en": "Facts",
+        "it": "Fatti"
+      },
+      "summary": {
+        "en": "What the assistant remembers between conversations",
+        "it": "Cosa l'assistente ricorda tra le conversazioni"
+      }
+    },
+    {
       "id": "skills",
       "title": {
         "en": "Skills",

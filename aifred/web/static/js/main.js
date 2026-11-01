@@ -5,6 +5,7 @@ const PAGES = [
   { id: "chat", label: "Chat", icon: "chat", key: "c", load: () => import("./pages/chat.js") },
   { id: "sessions", label: "Sessions", icon: "sessions", key: "s", load: () => import("./pages/sessions.js") },
   { id: "memory", label: "Memory", icon: "memory", key: "m", load: () => import("./pages/memory.js") },
+  { id: "facts", label: "Facts", icon: "memory", load: () => import("./pages/facts.js") },
   { id: "skills", label: "Skills", icon: "skills", key: "k", load: () => import("./pages/skills.js") },
   { id: "knowledge", label: "Knowledge", icon: "knowledge", load: () => import("./pages/knowledge.js") },
   { id: "library", label: "Library", icon: "library", load: () => import("./pages/library.js") },

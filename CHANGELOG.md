@@ -2,6 +2,17 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.9.0] - 2026-11-01
+
+### Added
+- **Long-term memory (Facts).** The assistant keeps facts between conversations, without limit, and recalls the ones a request needs. Off by default (`AUTO_MEMORY`: `off`, `owner`, `all`). A model reads new messages every `MEMORY_EVERY_TURNS` turns, when `/new` closes a conversation and when it has been idle (`MEMORY_IDLE_MINUTES`), and returns small facts; code checks each one (length, injected instructions, secrets), merges repeats and lets a correction supersede an older fact. Facts are found by keywords and, with an embedding model, by meaning, ranked by relevance, recency and importance, and added after the user's message in a block marked as untrusted notes (the frozen system prompt is untouched). New `recall` tool for a deeper search. Details and the decision not to add SurrealDB for now: ADR-005.
+- **Whose facts.** Each fact belongs to `owner`, `user:<id>`, `chat:<id>` or `agent:<name>`. A conversation only ever reads its own: the open Telegram bot gives each person a memory of their own and never shows the owner's; sub-agents listed in `MEMORY_AGENTS` keep theirs.
+- **Extraction route.** `MEMORY_EXTRACT_ROUTE` (empty by default: the conversation's own route). If it is unavailable, `MEMORY_EXTRACT_FALLBACK` uses the conversation's own route, which already received the text. Extraction is logged in Usage as agent `memory`.
+- **Retention.** Facts not recalled for `MEMORY_RETENTION_DAYS` (180) are archived and deleted `MEMORY_GRACE_DAYS` (30) later; an archived fact can be restored. A daily upkeep also merges exact duplicates.
+- **Facts page.** Status, settings, the list of facts (filter, search, edit, archive, restore, delete, *Add to notes* for the ones used often), subjects with pause and forget, JSON and Markdown export, and import with a preview (merge or replace). API under `/api/ltm`.
+- **`/forget [confirm]`** deletes what the assistant remembers about the person who sends it, also on the open Telegram bot.
+- Database migration 14 (`mem_facts`, `mem_links`, `mem_episodes`, `mem_cursor`).
+
 ## [0.8.0] - 2026-10-31
 
 ### Added
