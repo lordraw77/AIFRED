@@ -178,7 +178,7 @@ export default {
     function draw() {
       clear(view);
       const list = h("datalist", { id: "ltm-subjects" }, ["owner", ...status.subjects.map((s) => s.subject)].filter((v, i, a) => a.indexOf(v) === i).map((s) => h("option", { value: s })));
-      view.append(statusPanel(), openSettings ? settingsPanel() : null, factsPanel(), subjectsPanel(), transferPanel(), list);
+      view.append(...[statusPanel(), openSettings ? settingsPanel() : null, factsPanel(), subjectsPanel(), transferPanel(), list].filter(Boolean));
       ctx.setCount(status.total);
     }
     await loadFacts();
