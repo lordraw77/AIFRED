@@ -43,4 +43,5 @@ The background review reads what you said (your messages in full; its own long a
 - **Approval.** With `WRITE_APPROVAL` set to `memory` or `all`, the assistant's saves wait in [Journey](#/guide?s=journey) until you approve them. Your own edits here are never held back.
 - **Safety check.** Everything written to memory, by you or by the assistant, is scanned: text that looks like an injected instruction ("ignore the previous instructions…"), hidden characters and attempts to leak secrets are refused.
 - **Undo.** Every change is in the Journey timeline with an *Undo* button.
+- **Long-term memory.** Beyond these two short files, the assistant can keep any number of facts between conversations; see [Facts](#/guide?s=facts).
 - **It is sent to the model.** The memory is part of every request, so keep secrets out of it. The open Telegram bot never sees it.

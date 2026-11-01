@@ -43,4 +43,5 @@ La revisione in background legge ciò che hai detto (i tuoi messaggi per intero;
 - **Approvazione.** Con `WRITE_APPROVAL` su `memory` o `all`, i salvataggi dell'assistente aspettano in [Journey](#/guide?s=journey) finché non li approvi. Le tue modifiche qui non vengono mai trattenute.
 - **Controllo di sicurezza.** Tutto ciò che entra in memoria, da te o dall'assistente, viene analizzato: testo che sembra un'istruzione iniettata ("ignora le istruzioni precedenti…"), caratteri nascosti e tentativi di far uscire segreti vengono rifiutati.
 - **Annullare.** Ogni modifica è nella cronologia di Journey con un pulsante *Undo*.
+- **Memoria a lungo termine.** Oltre a questi due file brevi, l'assistente può tenere un numero qualsiasi di fatti tra le conversazioni; vedi [Fatti](#/guide?s=facts).
 - **Va al modello.** La memoria fa parte di ogni richiesta: tienici lontano i segreti. Il bot Telegram aperto non la vede mai.

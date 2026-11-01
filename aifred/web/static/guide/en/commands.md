@@ -10,7 +10,7 @@ A message that starts with `/` is a command, not a question for the model. Comma
 |---|---|
 | `/start` | A greeting. |
 | `/help` | Lists the commands. |
-| `/new` | Starts a new conversation (on Telegram too). |
+| `/new` | Starts a new conversation (on Telegram too). The one just closed is read for facts to remember when long-term memory is on. |
 | `/sessions` | Lists your recent conversations. |
 | `/think on\|off\|auto` | Turns the model's reasoning mode on or off for this conversation. |
 | `/model [route\|provider/model\|auto]` | Shows or chooses the model route of this conversation. |
@@ -25,6 +25,7 @@ A message that starts with `/` is a command, not a question for the model. Comma
 | `/cron [list\|add\|pause\|resume\|run\|remove]` | Manages scheduled tasks (see below). |
 | `/agent <name> <task>` | Hands a task to a sub-agent. |
 | `/agents` | Lists the sub-agents you can use. |
+| `/forget [confirm]` | Deletes what the assistant remembers about you from earlier conversations ([long-term memory](#/guide?s=facts)); without `confirm` it only says how many facts there are. |
 | `/quit` | Leaves the command-line chat (command line only). |
 
 ### Scheduling from a command
@@ -48,6 +49,6 @@ The second part may be a sentence in English or Italian, five cron fields, an al
 ### What to know about the bot
 - It answers in **private chats only**; groups and channels are ignored.
 - Answers are sent formatted (bold, italic, code, links, lists). If Telegram refuses the formatting the message is sent again as plain text, so nothing is lost. Long answers are split into several messages.
-- With an **empty allowlist the bot is open to everyone**. It then runs in a restricted mode: no memory or profile, no knowledge base, no MCP servers, no terminal, a rate limit, and only the commands `/start`, `/help`, `/new` and `/think`. The sidebar warns *open to everyone*. Prefer an allowlist.
+- With an **empty allowlist the bot is open to everyone**. It then runs in a restricted mode: no memory or profile, no knowledge base, no MCP servers, no terminal, a rate limit, and only the commands `/start`, `/help`, `/new`, `/think` and `/forget`. The sidebar warns *open to everyone*. Prefer an allowlist.
 - Scheduled tasks deliver their result to chats on the allowlist only.
 - Each Telegram chat has its own conversation; `/new` starts another.

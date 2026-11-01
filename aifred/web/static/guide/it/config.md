@@ -98,6 +98,24 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 | `MCP_OAUTH_CLIENT_ID` | vuoto | Client id registrato a mano per l'accesso OAuth. |
 | `MCP_OAUTH_PUBLIC_URL` | vuoto | Indirizzo https pubblico di AIFRED, perché possa servire il suo documento di metadati del client. |
 
+### memory
+| Impostazione | Predefinito | Significato |
+|---|---|---|
+| `AUTO_MEMORY` | off | Memoria a lungo termine: i fatti vengono estratti dalle conversazioni e richiamati in quelle successive. `off`: non si salva nulla; `owner`: solo le tue chat; `all`: anche le chat di altre persone e i sotto-agenti, ognuno con i propri fatti. |
+| `MEMORY_EXTRACT_ROUTE` | vuoto | La route il cui modello estrae i fatti (vuoto: la route della conversazione). Il testo della conversazione le viene inviato, quindi scegli chi lo riceve. |
+| `MEMORY_EXTRACT_FALLBACK` | on | Se la route di estrazione non è disponibile, usa la route della conversazione, che ha già ricevuto il testo. |
+| `MEMORY_AGENTS` | vuoto | Sotto-agenti, per nome, che tengono una propria memoria a lungo termine quando `AUTO_MEMORY` è `all`; gli altri ripartono ogni volta da zero. |
+| `MEMORY_EVERY_TURNS` | 12 | Nuovi turni dopo i quali una conversazione viene letta per estrarre fatti; avviene anche quando finisce o resta inattiva. |
+| `MEMORY_IDLE_MINUTES` | 30 | Inattività dopo la quale una conversazione si considera finita. |
+| `MEMORY_MAX_FACTS_PER_RUN` | 8 | Massimo di fatti prodotti da una estrazione. |
+| `MEMORY_EMBED_PROVIDER` | vuoto | Provider del modello di embedding per i fatti (vuoto: quello della knowledge base; senza, i fatti si trovano solo per parole chiave). |
+| `MEMORY_EMBED_MODEL` | vuoto | Modello di embedding per i fatti (vuoto: quello della knowledge base). |
+| `MEMORY_RECALL_K` | 6 | Massimo di fatti aggiunti a una richiesta. |
+| `MEMORY_RECALL_TOKENS` | 600 | Limite di lunghezza, in token, dei fatti richiamati e aggiunti a una richiesta. |
+| `MEMORY_RECALL_MIN_SIMILARITY` | 0.30 | I fatti sotto questa similarità coseno non vengono richiamati dalla ricerca vettoriale. |
+| `MEMORY_RETENTION_DAYS` | 180 | I fatti non richiamati da questi giorni vengono archiviati (0: conservali per sempre). |
+| `MEMORY_GRACE_DAYS` | 30 | Giorni in cui un fatto archiviato si può ancora ripristinare prima di essere cancellato (0: cancella subito). |
+
 ### library
 | Impostazione | Predefinito | Significato |
 |---|---|---|

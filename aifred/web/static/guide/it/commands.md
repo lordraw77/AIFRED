@@ -10,7 +10,7 @@ Un messaggio che inizia con `/` è un comando, non una domanda al modello. I com
 |---|---|
 | `/start` | Un saluto. |
 | `/help` | Elenca i comandi. |
-| `/new` | Inizia una nuova conversazione (anche su Telegram). |
+| `/new` | Inizia una nuova conversazione (anche su Telegram). Quella appena chiusa viene letta per i fatti da ricordare, se la memoria a lungo termine è attiva. |
 | `/sessions` | Elenca le conversazioni recenti. |
 | `/think on\|off\|auto` | Attiva o disattiva il ragionamento del modello per questa conversazione. |
 | `/model [route\|provider/model\|auto]` | Mostra o sceglie la route di questa conversazione. |
@@ -25,6 +25,7 @@ Un messaggio che inizia con `/` è un comando, non una domanda al modello. I com
 | `/cron [list\|add\|pause\|resume\|run\|remove]` | Gestisce le attività pianificate (vedi sotto). |
 | `/agent <nome> <compito>` | Affida un compito a un sub-agente. |
 | `/agents` | Elenca i sub-agenti che puoi usare. |
+| `/forget [confirm]` | Cancella ciò che l'assistente ricorda di te dalle conversazioni precedenti ([memoria a lungo termine](#/guide?s=facts)); senza `confirm` dice solo quanti fatti ci sono. |
 | `/quit` | Esce dalla chat a riga di comando (solo riga di comando). |
 
 ### Pianificare da un comando
@@ -48,6 +49,6 @@ La seconda parte può essere una frase in italiano o in inglese, cinque campi cr
 ### Cosa sapere sul bot
 - Risponde **solo nelle chat private**; gruppi e canali sono ignorati.
 - Le risposte arrivano formattate (grassetto, corsivo, codice, link, elenchi). Se Telegram rifiuta la formattazione il messaggio viene rispedito come testo semplice, così non si perde nulla. Le risposte lunghe sono divise in più messaggi.
-- Con la **lista consentita vuota il bot è aperto a tutti**. Gira allora in modalità ristretta: niente memoria né profilo, niente knowledge base, niente server MCP, niente terminale, un limite di frequenza, e solo i comandi `/start`, `/help`, `/new` e `/think`. La barra laterale avvisa *open to everyone*. Meglio una lista consentita.
+- Con la **lista consentita vuota il bot è aperto a tutti**. Gira allora in modalità ristretta: niente memoria né profilo, niente knowledge base, niente server MCP, niente terminale, un limite di frequenza, e solo i comandi `/start`, `/help`, `/new`, `/think` e `/forget`. La barra laterale avvisa *open to everyone*. Meglio una lista consentita.
 - Le attività pianificate consegnano il risultato solo alle chat della lista consentita.
 - Ogni chat Telegram ha la sua conversazione; `/new` ne inizia un'altra.
