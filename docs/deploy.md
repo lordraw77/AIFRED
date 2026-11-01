@@ -65,7 +65,7 @@ Add servers on the dashboard (MCP page, phase 6) or with `PUT /api/mcp/servers/<
 
 ## Using the published image
 
-The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.8.0` and `latest`, linux/amd64; `0.7.3`, `0.7.2`, `0.7.1`, `0.7.0`, `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
+The image is on Docker Hub as [`lordraw/aifred`](https://hub.docker.com/r/lordraw/aifred) (tags `0.9.0` and `latest`, linux/amd64; `0.8.0`, `0.7.3`, `0.7.2`, `0.7.1`, `0.7.0`, `0.6.2`, `0.6.1`, `0.6.0`, `0.5.0`, `0.4.1`, `0.4.0`, `0.3.0`, `0.2.1`, `0.2.0`, `0.1.1`, `0.1.0` and `0.1.0.dev0` are earlier builds). To run the stack from it instead of building:
 
 ```bash
 echo 'AIFRED_IMAGE=lordraw/aifred' >> .env     # and AIFRED_VERSION=0.9.0 to pin a version
