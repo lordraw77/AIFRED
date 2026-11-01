@@ -5,7 +5,7 @@
 
 AIFRED is a small, from-scratch personal agent: persistent memory, skills that improve over time, tools (including MCP servers), a local knowledge base, and several ways to talk to it, all in **one Python process, one SQLite database and one container**. It runs on your hardware, uses the LLMs you choose (local or hosted) and is configured entirely from a web dashboard.
 
-> **Status:** early release (`0.9.0`). It is tested (1,050+ automated tests) and the Telegram gateway, three MCP servers and a hosted vision model have been checked against real services, but expect rough edges and please report them.
+> **Status:** early release (`0.9.0`). It is tested (1,300+ automated tests) and the Telegram gateway, three MCP servers and a hosted vision model have been checked against real services, but expect rough edges and please report them.
 
 ## Links
 
@@ -23,7 +23,7 @@ AIFRED is a small, from-scratch personal agent: persistent memory, skills that i
 
 - **Gateways:** a web dashboard, a CLI, a Telegram bot (optional allowlist) and an OpenAI-compatible API (`/v1/chat/completions`).
 - **Any LLM, set up from the browser:** Ollama and local OpenAI-compatible servers, Groq, OpenRouter, Google Gemini, Cloudflare Workers AI, Cerebras, Mistral, NVIDIA, Hugging Face, or any custom endpoint, with ordered routes, automatic fallback, key rotation, budgets and health.
-- **Memory and skills:** small curated memory the agent maintains, skills that are saved and reused, and a background review that proposes what is worth keeping (with optional approval and undo).
+- **Memory and skills:** small curated memory the agent maintains, skills that are saved and reused, and a background review that proposes what is worth keeping (with optional approval and undo). **Long-term memory** (off by default) also keeps any number of facts between conversations, per person on the open Telegram bot, with retention, export and import (Facts page).
 - **Tools and MCP:** memory, search, web, files, optional terminal, and a built-in MCP client (Streamable HTTP, current and earlier revisions); a short note per server says what it is *for*, so the agent picks the right one.
 - **Local knowledge base (RAG):** your documents (text, PDF, Office, OpenDocument, images and scans through a vision model you choose), hybrid semantic + keyword search with page citations. Files are parsed in a limited child process.
 - **Safe by default:** single admin, scrypt passwords, session cookies with CSRF, hashed API keys, secrets encrypted at rest (key kept in OpenBao next to the container), non-root read-only container, no `pip` in the image, strict Content-Security-Policy on the dashboard.
