@@ -542,6 +542,11 @@ _MIGRATIONS: list[str] = [
         updated REAL NOT NULL
     );
     """,
+    # 15: a first-token timeout per model; hosted providers that still had the old default of 30 s move to 60 s
+    """
+    ALTER TABLE models ADD COLUMN first_token_timeout REAL;
+    UPDATE providers SET first_token_timeout = 60 WHERE first_token_timeout = 30;
+    """,
 ]
 
 

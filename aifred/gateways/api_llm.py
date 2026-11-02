@@ -75,6 +75,7 @@ class ModelIn(BaseModel):
     price_out: float | None = None
     streaming: bool | None = None
     vision: bool | None = None
+    first_token_timeout: float | None = None
 
     def fields(self) -> dict[str, Any]:
         """Only the fields the client sent."""

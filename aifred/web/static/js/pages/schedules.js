@@ -24,8 +24,24 @@ export default {
       if (!data.telegram_ids.length) inner.append(h("div", { class: "hint" }, "No Telegram id is on TELEGRAM_ALLOWED_IDS, so results are kept here but cannot be delivered."));
       if (!data.tasks.length && editing === null) inner.append(empty("No scheduled task yet. A task is a prompt the agent runs by itself, for example a news summary every morning."));
       if (editing === "") inner.append(form(null, data));
-      for (const t of data.tasks) inner.append(editing === t.name ? form(t, data) : card(t));
+      // soonest first; paused tasks have no next run and go last
+      const upcoming = (t) => (t.enabled && t.next_run ? t.next_run : Infinity);
+      const ordered = [...data.tasks].sort((a, b) => upcoming(a) - upcoming(b) || a.name.localeCompare(b.name));
+      for (const t of ordered) inner.append(h("div", { class: "sched-row" }, when(t, data.timezone), editing === t.name ? form(t, data) : card(t)));
       body.append(head, h("div", { class: "stack" }, h("div", { class: "label" }, "Let the assistant list, run, pause and propose tasks (toolset cron)"), toolsetSwitches("cron")), h("p", { class: "hint" }, `Times use ${data.timezone || "the server's time zone"} (SCHEDULER_TIMEZONE). Runs are unattended and use only the toolsets switched on in the Scheduled column of the Tools page. The model can propose tasks in a chat, but they wait in Journey for your approval.`));
+    }
+
+    // the next run as a time (large) over a short date, in the scheduler's time zone
+    function when(t, zone) {
+      if (!t.enabled || !t.next_run) return h("div", { class: "sched-when off" }, h("div", { class: "sched-time" }, "—"), h("div", { class: "sched-date" }, t.enabled ? "no next run" : "paused"));
+      const at = new Date(t.next_run * 1000);
+      const opts = zone ? { timeZone: zone } : {};
+      let time, date;
+      try {
+        time = at.toLocaleTimeString([], { ...opts, hour: "2-digit", minute: "2-digit", hour12: false });
+        date = at.toLocaleDateString([], { ...opts, weekday: "short", day: "numeric", month: "short" });
+      } catch { time = t.next_run_text; date = ""; }
+      return h("div", { class: "sched-when" }, h("div", { class: "sched-time" }, time), h("div", { class: "sched-date" }, date));
     }
 
     function card(t) {

@@ -2,6 +2,17 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.9.1] - 2026-11-02
+
+### Added
+- **First-token timeout per model.** Each model on the Models page has a *First token (s)* field: how long to wait for the first token before the route moves to the next entry. Empty uses the provider's value; a route entry's own override still comes first. The default for hosted providers is now 60 s (it was 30 s; providers still at 30 s move to 60 s; local engines keep 120 s). Database migration 15.
+
+### Changed
+- **Schedules page.** Each task has the time of its next run in a column at the left (time over a short date, in the scheduler's time zone), and tasks are listed by next run, soonest first; paused tasks go last.
+
+### Fixed
+- **Fallback stopped at the first rejected request.** A scheduled run went through the route as far as a Cloudflare model that answered HTTP 413 (context window of 24,000 tokens) or HTTP 400 (message format it does not take), and failed there without reaching the Groq, Mistral or local Ollama entries below. A 413 is now a context error (the next entry is tried), and any other rejected request moves on to the next entry too, with no cooldown; if every entry rejects it, the first rejection is the error. After a context error, entries whose window is unknown are tried instead of skipped.
+
 ## [0.9.0] - 2026-11-01
 
 ### Added

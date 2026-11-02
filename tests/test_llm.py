@@ -127,6 +127,7 @@ def test_retry_after_headers() -> None:
         (400, '{"error":{"message":"maximum context length is 8192 tokens","code":"context_length_exceeded"}}', {}, Outcome.CONTEXT),
         (400, '{"error":{"message":"Your prompt was flagged by content policy"}}', {}, Outcome.FATAL),
         (422, "", {}, Outcome.FATAL),
+        (413, '{"errors":[{"message":"exceeded this model context window limit (24000)"}]}', {}, Outcome.CONTEXT),
     ],
 )
 def test_classify_http(status: int, body: str, headers: dict[str, str], outcome: Outcome) -> None:

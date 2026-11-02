@@ -143,6 +143,14 @@ td.mono, td .mono { font-family: var(--font-mono); font-size: 12px; }
 .item { border: 1px solid var(--line); background: var(--bg); padding: 12px; margin-bottom: 12px; }
 .item-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .item-head .title { font: 14px var(--font-mono); font-weight: 600; flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+/* Schedules: next run in a column at the left of each task */
+.sched-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; align-items: start; }
+.sched-row > .item { margin-bottom: 12px; }
+.sched-when { padding-top: 10px; text-align: right; }
+.sched-time { font: 600 20px var(--font-mono); line-height: 1.1; }
+.sched-date { font: 11px var(--font-mono); color: var(--muted, inherit); opacity: .8; margin-top: 4px; }
+.sched-when.off .sched-time, .sched-when.off .sched-date { opacity: .45; }
+@media (max-width: 600px) { .sched-row { grid-template-columns: minmax(0, 1fr); gap: 0; } .sched-when { text-align: left; padding: 0 0 4px; display: flex; gap: 8px; align-items: baseline; } .sched-date { margin-top: 0; } }
 .steps { display: flex; flex-direction: column; gap: 6px; }
 .step.done { color: var(--ok); }
 .entry { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }

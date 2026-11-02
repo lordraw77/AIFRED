@@ -61,7 +61,7 @@ class Preset:
     notes: str = ""
     headers: dict[str, str] = field(default_factory=dict)
     config_fields: tuple[str, ...] = ()
-    first_token: float = 30.0
+    first_token: float = 60.0
 
 
 # [VERIFY] URLs and quirks are re-checked against each provider's documentation before release
@@ -181,7 +181,7 @@ _TIMEOUT_LIMITS = {
     "stall_timeout": (1.0, 600.0),
     "total_timeout": (5.0, 3600.0),
 }
-_TIMEOUT_DEFAULTS = {"connect_timeout": 10.0, "first_token_timeout": 30.0, "stall_timeout": 60.0, "total_timeout": 300.0}
+_TIMEOUT_DEFAULTS = {"connect_timeout": 10.0, "first_token_timeout": 60.0, "stall_timeout": 60.0, "total_timeout": 300.0}
 
 
 def _verify_to_db(value: Any) -> str:
@@ -467,7 +467,7 @@ class ProviderService:
             "streaming": flag(row["streaming"]), "vision": flag(row["vision"]), "vision_tested": row["vision_test_at"] is not None,
             "vision_error": row["vision_error"] or "",
             "thinking_control": row["thinking_control"], "price_in": row["price_in"], "price_out": row["price_out"],
-            "kind": row["kind"], "dim": row["dim"],
+            "kind": row["kind"], "dim": row["dim"], "first_token_timeout": row["first_token_timeout"],
             "manual": bool(row["manual"]), "available": bool(row["available"]), "test_ok": flag(row["test_ok"]),
             "test_at": row["test_at"], "test_error": row["test_error"],
         }
@@ -496,6 +496,8 @@ class ProviderService:
             for name in ("streaming", "vision"):
                 if name in m:
                     values[name] = None if m[name] is None else int(bool(m[name]))
+            if "first_token_timeout" in m:
+                values["first_token_timeout"] = None if m["first_token_timeout"] in (None, "") else self._seconds(m["first_token_timeout"], "first_token_timeout")
             existing = self._store.model_get(provider_id, model_id)
             self._store.model_save(provider_id, model_id, values, manual=existing is None)
         return self.models(provider_id)
@@ -510,6 +512,17 @@ class ProviderService:
             raise ProviderError(f"{name} must be a whole number") from None
         if number < 1:
             raise ProviderError(f"{name} must be positive")
+        return number
+
+    @staticmethod
+    def _seconds(value: Any, name: str) -> float:
+        low, high = _TIMEOUT_LIMITS["first_token_timeout"]
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ProviderError(f"{name} must be a number of seconds") from None
+        if not low <= number <= high:
+            raise ProviderError(f"{name} must be between {low:g} and {high:g} seconds")
         return number
 
     @staticmethod

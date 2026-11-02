@@ -326,7 +326,7 @@ Every request walks the route: it tries the first **available** entry and moves 
 | Credit or quota exhausted | HTTP 402; 429 with a quota, billing or insufficient-credits message; Gemini `RESOURCE_EXHAUSTED`; a provider token budget reached | Try the provider's next key, then the next entry | Reset time from `Retry-After` or reset headers; default `COOLDOWN_QUOTA` |
 | Short rate limit | 429 with `Retry-After` ≤ 5 s | Wait once and retry the same entry, then fail over | `Retry-After` |
 | Unavailable | 5xx, overloaded, connection refused, DNS or TLS failure | Next entry | Exponential, 30 s up to 10 min |
-| Timeout | No connection within `connect` (10 s), no first token within `first_token` (30 s), silence longer than `stall` (60 s), or `total` exceeded | Next entry | 2 min |
+| Timeout | No connection within `connect` (10 s), no first token within `first_token` (60 s; settable per model, which takes precedence over the provider's value, and per route entry, which takes precedence over both), silence longer than `stall` (60 s), or `total` exceeded | Next entry | 2 min |
 | Invalid key | 401, 403 | Next entry; mark the key invalid and alert the admin | Until the key is edited |
 | Model missing | 404 with a structured error (model not found, or a catalogue entry that is not active for the account); a bare "page not found" counts as unavailable | Next entry; mark the model unavailable | Until the model list is refreshed |
 | Context too long | 400 with a context-length error | Only entries with a larger `context_window`; otherwise report | None |
@@ -340,7 +340,7 @@ Every request walks the route: it tries the first **available** entry and moves 
 
 #### Implementation notes
 
-- Timeouts: `first_token` defaults to 120 s for `local` and `ollama` (models load on demand; a cold 8B model needed 74 s) and 30 s elsewhere. Any streamed delta, reasoning chunks included, counts as the first token, and only these timers bound reads.
+- Timeouts: `first_token` defaults to 120 s for `local` and `ollama` (models load on demand; a cold 8B model needed 74 s) and 60 s elsewhere. A model can have its own value (Models page, column *First token (s)*; empty uses the provider's). Any streamed delta, reasoning chunks included, counts as the first token, and only these timers bound reads.
 - A model joins a route only after its **Test** passed (a minimal request that must end in a call to a `ping` tool); editing a provider's models never changes that flag.
 - Health is kept per `provider|model` (shared by every route using it) and per key; `POST /api/llm/health/{entry}/reset` takes a **route entry id** and clears that entry, all keys of its provider, and the model's "missing" mark.
 - Quota on a provider with several keys cools down the key, not the entry; the entry is skipped only when no key is usable. Providers without keys cool down the entry.

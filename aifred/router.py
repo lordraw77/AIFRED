@@ -92,6 +92,7 @@ class Entry:
         context_window: Model context window, if known.
         thinking_control: Model thinking control.
         model_available: Whether the model is marked available.
+        first_token: The model's own first-token timeout (s), if set; a route entry's override comes first, the provider's value last.
     """
 
     id: int | None
@@ -102,6 +103,7 @@ class Entry:
     context_window: int | None = None
     thinking_control: str = "none"
     model_available: bool = True
+    first_token: float | None = None
 
     @property
     def ref(self) -> str:
@@ -154,6 +156,7 @@ class _Walk:
     midstream_used: bool = False
     min_context: int | None = None
     context_failed: bool = False
+    first_fatal: LLMError | None = None
     attempts: int = 0
 
 
@@ -219,6 +222,7 @@ class LLMRouter:
             timeouts=row["timeouts"], context_window=model["context_window"] if model else None,
             thinking_control=model["thinking_control"] if model else "none",
             model_available=bool(model["available"]) if model else True,
+            first_token=model["first_token_timeout"] if model else None,
         )
 
     def route_entries(self, name: str) -> list[Entry]:
@@ -403,7 +407,7 @@ class LLMRouter:
         return Endpoint(
             provider_type=p.type, chat_url=p.chat_url, model=entry.model, api_key=key, headers=p.headers,
             extra_body=p.extra_body, verify=p.verify_tls, connect=t.get("connect", p.connect),
-            first_token=t.get("first_token", p.first_token), stall=t.get("stall", p.stall),
+            first_token=t.get("first_token", entry.first_token or p.first_token), stall=t.get("stall", p.stall),
             total=t.get("total", p.total), thinking_control=entry.thinking_control,
         )
 
@@ -453,7 +457,8 @@ class LLMRouter:
             if walk.attempts and self._clock() >= walk.deadline:
                 failed_labels.append(("route", "time budget exhausted"))
                 break
-            if walk.min_context is not None and (entry.context_window or 0) <= walk.min_context:
+            # skip entries known to hold no more than the one that was too small; an unknown window is worth a try
+            if walk.min_context and entry.context_window and entry.context_window <= walk.min_context:
                 continue
             done: Completed | None = None
             async for event in self._run_entry(entry, status, messages, tools, walk):
@@ -471,6 +476,8 @@ class LLMRouter:
             raise LLMError(
                 "The conversation is too long for every model in the route", Outcome.CONTEXT
             )
+        if walk.first_fatal and not failed_labels and all(r == "request rejected" for _, r in walk.failures[len(skipped):]):
+            raise walk.first_fatal
         raise RouteExhausted([*walk.failures, *failed_labels])
 
     def _switch_notice(self, entry: Entry, walk: _Walk, session_key: str | None) -> str | None:
@@ -499,7 +506,7 @@ class LLMRouter:
                     try:
                         endpoint = await asyncio.to_thread(self._endpoint, entry, key_id)
                     except VaultUnavailable as exc:
-                        # a sealed or unreachable secret store says nothing about the key itself: no cooldown, no failover
+                        # a sealed or unreachable secret store says nothing about the key itself: no cooldown
                         raise LLMError(f"the secret store is unavailable ({exc})", Outcome.FATAL) from None
                     async for ev in stream_chat(
                         endpoint, messages, tools,
@@ -551,7 +558,11 @@ class LLMRouter:
             walk.midstream_used = True
             reason = f"stream interrupted ({reason})"
         elif outcome is Outcome.FATAL:
-            return "raise"
+            # a rejection can be this provider's alone (a message format it does not take, a limit of its own):
+            # try the next entry, without a cooldown, and give the first rejection if every entry says the same
+            walk.first_fatal = walk.first_fatal or exc
+            walk.failures.append((entry.provider.slug, reason))
+            return "next_entry"
 
         if outcome is Outcome.RATE_LIMIT and not retried and not exc.started:
             wait = exc.retry_after
