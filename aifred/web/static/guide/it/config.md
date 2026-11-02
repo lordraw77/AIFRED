@@ -138,7 +138,18 @@ Tutte le impostazioni di AIFRED in una pagina, raggruppate per argomento. Le mod
 | `RAG_MAX_CHUNKS` | 100000 | Massimo di passaggi in tutta la base. |
 | `RAG_CACHE_MB` | 512 | Memoria per la ricerca veloce (0: legge ogni volta il database). |
 | `RAG_SCAN_MINUTES` | 0 | Riesamina la cartella knowledge ogni N minuti (0: solo su richiesta). |
-| `RAG_FORMATS` | text, pdf, office, image | Formati accettati. |
+| `RAG_FORMATS` | text, pdf, office, image | Formati accettati: text, pdf, office, image, audio (audio non è attivo di default: il suono va al provider di trascrizione). |
+| `RAG_WATCH` | off | Osserva la cartella knowledge (inotify, Linux) e indicizza le modifiche in pochi secondi. |
+| `RAG_WATCH_SETTLE` | 2 | Secondi senza eventi sui file prima che l'osservatore riesamini una collezione. |
+| `RAG_ANN` | auto | Indice approssimato (IVF) per le collezioni grandi: `auto`, `on` o `off`. |
+| `RAG_ANN_MIN_CHUNKS` | 500000 | Passaggi in una collezione da cui `auto` costruisce l'indice approssimato. |
+| `RAG_ANN_PROBE` | 8 | Celle lette da una ricerca approssimata (di più: più preciso, più lento). |
+| `RAG_OCR_ENGINE` | vision | Chi legge il testo di immagini e pagine scansionate: `vision`, `tesseract` (su questa macchina) o `auto`. |
+| `RAG_OCR_LANGS` | eng+ita | Lingue di tesseract unite da `+`. |
+| `RAG_AUDIO_PROVIDER` | – | Provider del modello di trascrizione per le registrazioni. |
+| `RAG_AUDIO_MODEL` | – | Modello di trascrizione (per esempio `whisper-1`). |
+| `RAG_AUDIO_LANGUAGE` | – | Lingua delle registrazioni (ISO 639-1; vuoto: rilevata). |
+| `RAG_MAX_AUDIO_BYTES` | 25 MB | Registrazione più grande. |
 | `RAG_VISION_ROUTE` | vision | La route il cui modello legge immagini e pagine scansionate. |
 | `RAG_VISION_DAILY_LIMIT` | 200 | Immagini e pagine scansionate inviate al modello vision al giorno (0: vision spenta). |
 | `RAG_MAX_IMAGE_BYTES` | 10 MB | Immagine più grande. |

@@ -134,6 +134,54 @@ class EmbeddingClient:
             headers["Authorization"] = f"Bearer {target.api_key}"
         return self._retrying(lambda: self._once(target, payload, headers, len(texts)))
 
+    def transcribe(self, target: EmbedTarget, data: bytes, filename: str, mime: str, language: str | None = None) -> list[tuple[float, float, str]]:
+        """Transcribe speech with an OpenAI-compatible ``/audio/transcriptions`` endpoint.
+
+        The segments (start, end, text) are asked for with ``verbose_json``; a server that only knows ``json`` gives
+        one segment without times.
+
+        Raises:
+            EmbeddingError: On a permanent failure, or a transient one that outlasted the retries.
+        """
+        headers = dict(target.headers)
+        headers.pop("Content-Type", None)
+        headers["Accept"] = "application/json"
+        if target.api_key:
+            headers["Authorization"] = f"Bearer {target.api_key}"
+        return self._retrying(lambda: self._transcribe_once(target, data, filename, mime, language, headers))
+
+    def _transcribe_once(
+        self, target: EmbedTarget, data: bytes, filename: str, mime: str, language: str | None, headers: dict[str, str],
+    ) -> list[tuple[float, float, str]]:
+        for fmt in ("verbose_json", "json"):
+            form = {"model": target.model, "response_format": fmt}
+            if language:
+                form["language"] = language
+            try:
+                with self._factory(target) as client:
+                    response = client.post(target.url, data=form, files={"file": (filename, data, mime)}, headers=headers)
+            except httpx.HTTPError as exc:
+                err = classify_exception(exc)
+                raise EmbeddingError(str(err), err.outcome) from None
+            if response.status_code in (400, 415, 422) and fmt == "verbose_json":
+                continue                                      # a server without verbose_json: ask again for plain json
+            if response.status_code >= 400:
+                err = classify_http(response.status_code, response.text, response.headers)
+                raise EmbeddingError(str(err), err.outcome, err.retry_after)
+            try:
+                body = response.json()
+                text = str(body.get("text") or "").strip()
+                segments = [
+                    (float(seg.get("start", 0.0)), float(seg.get("end", 0.0)), str(seg.get("text", "")).strip())
+                    for seg in (body.get("segments") or []) if isinstance(seg, dict) and str(seg.get("text", "")).strip()
+                ]
+            except (ValueError, TypeError, AttributeError):
+                raise EmbeddingError("the transcription endpoint answered with an unexpected body", Outcome.FATAL) from None
+            if segments:
+                return segments
+            return [(0.0, 0.0, text)] if text else []
+        raise EmbeddingError("the transcription endpoint refused the request", Outcome.FATAL)  # pragma: no cover
+
     def _retrying(self, call: Callable[[], Any]) -> Any:
         """Run ``call``, retrying transient failures with backoff (quota errors are not retried)."""
         last: EmbeddingError | None = None

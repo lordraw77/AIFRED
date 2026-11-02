@@ -13,6 +13,7 @@ from aifred.gateways.api import AdminDep, Ok, ServicesDep
 from aifred import rag_eval
 from aifred.instructions import InstructionError
 from aifred.rag import RagError
+from aifred.rag_parse import magic_kind
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class CollectionIn(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     embed_provider: str | None = None
     embed_model: str | None = None
+    open_access: bool | None = None
 
     def fields(self) -> dict[str, Any]:
         """Only the fields the client sent."""
@@ -124,13 +126,20 @@ async def upload_document(
 ) -> dict[str, Any]:
     """Upload a document as the raw request body (no multipart); it is queued for indexing."""
     _require_enabled(services)
-    limit = int(services.config.get("RAG_MAX_DOCUMENT_BYTES"))
+    cfg = services.config
+    # the limit of the kind of file: text and documents, images and recordings differ; the kind is known from the first bytes
+    limits = {"text": int(cfg.get("RAG_MAX_DOCUMENT_BYTES")), "image": int(cfg.get("RAG_MAX_IMAGE_BYTES")), "audio": int(cfg.get("RAG_MAX_AUDIO_BYTES"))}
+    limit = limits["text"]
+    ceiling = max(limits["text"], limits["image"], limits["audio"] if "audio" in cfg.get("RAG_FORMATS") else 0)
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > limit:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"the document is larger than {limit:,} bytes")
+    if declared and declared.isdigit() and int(declared) > ceiling:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"the document is larger than {ceiling:,} bytes")
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
+        if len(data) >= 16 and limit == limits["text"]:
+            kind = magic_kind(bytes(data[:16]))
+            limit = limits.get(kind or "", limits["text"]) if kind in ("image", "audio") else limit
         if len(data) > limit:  # checked while streaming: a missing or false Content-Length cannot get around it
             raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"the document is larger than {limit:,} bytes")
     try:
@@ -165,6 +174,15 @@ def document_file(doc_id: int, _: AdminDep, services: ServicesDep) -> Response:
         headers["Content-Disposition"] = f'attachment; filename="{name.replace(chr(34), "")}"'
         mime = "application/octet-stream"
     return Response(content=data, media_type=mime, headers=headers)
+
+
+@router.post("/api/rag/collections/{name}/index")
+async def build_index(name: str, _: AdminDep, services: ServicesDep, force: bool = True) -> dict[str, Any]:
+    """Build the approximate index of a collection now (by default even below ``RAG_ANN_MIN_CHUNKS``)."""
+    try:
+        return await asyncio.to_thread(services.rag.build_index, name, force)
+    except RagError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
 
 
 @router.post("/api/rag/documents/url", status_code=status.HTTP_202_ACCEPTED)

@@ -12,7 +12,7 @@ Questa pagina compare solo se la knowledge base è attiva: imposta `RAG_ENABLED`
 Collezioni, passaggi (pezzi di testo), memoria usata dalla cache dei vettori e quanti documenti sono pronti. Sotto: lo stato della **route vision** (legge immagini e pagine scansionate; serve un modello che abbia superato *Test vision* nella pagina [Models](#/guide?s=models)) con il conteggio di oggi rispetto al limite giornaliero (`RAG_VISION_DAILY_LIMIT`, 200), e quale modello di embedding è usato e chi riceve il tuo testo.
 
 ### Collections
-Una collezione è un gruppo di documenti con un nome ("homelab", "manuali"). La tabella mostra nome, descrizione, dimensione (documenti e passaggi), modello di embedding e stato. *Re-index* la ricostruisce (serve dopo aver cambiato il modello di embedding), *Delete* la elimina con tutti i documenti. Sotto: un nome, una descrizione e *Create*; e *Scan folder*.
+Una collezione è un gruppo di documenti con un nome ("homelab", "manuali"). La tabella mostra nome, descrizione, dimensione (documenti e passaggi), modello di embedding e stato. *Re-index* la ricostruisce (serve dopo aver cambiato il modello di embedding), *Delete* la elimina con tutti i documenti. La casella **Open bot** permette al bot Telegram aperto (quello senza allowlist) di cercare in quella collezione; serve anche `knowledge` in `TOOLSETS_TELEGRAM`, e una collezione non aperta per lui è invisibile. *Build index* costruisce subito l'indice approssimato (vedi sotto). Sotto: un nome, una descrizione e *Create*; e *Scan folder*.
 
 ### Documents
 - Un filtro per collezione e l'elenco: titolo e nome file, **stato**, tipo, passaggi, dimensione, ultimo aggiornamento, *Delete*.
@@ -26,7 +26,7 @@ Scrivi una domanda, scegli la modalità e premi `Invio`.
 ![Una ricerca di prova che mostra come è stato trovato ogni risultato](/static/guide/img/knowledge-2-search.png)
 
 - **hybrid** (predefinita) unisce significato (dense) e parole chiave; **dense** solo il significato; **keyword** solo le parole.
-- Ogni risultato mostra collezione, file e titolo, e dei badge: `dense #1`, `keyword #2` sono la posizione in ciascuna graduatoria; `rerank 0.93` compare quando un modello di rerank ha riordinato i candidati; `flagged` vuol dire che il documento ha fatto scattare il controllo anti-iniezione; `machine-read` che il testo viene da un modello vision.
+- Ogni risultato mostra collezione, file e titolo, e dei badge: `dense #1`, `keyword #2` sono la posizione in ciascuna graduatoria; `rerank 0.93` compare quando un modello di rerank ha riordinato i candidati; `flagged` vuol dire che il documento ha fatto scattare il controllo anti-iniezione; `machine-read` che il testo viene da un modello vision, dal motore OCR o da una trascrizione.
 
 ### Retrieval quality
 Misura se la ricerca trova il passaggio giusto, prima e dopo una modifica.
@@ -42,6 +42,12 @@ Misura se la ricerca trova il passaggio giusto, prima e dopo una modifica.
 - **Aggiungere documenti**: *Upload* o *Add URL*, oppure metti i file in `workspace/knowledge/<collezione>/` dentro la cartella dei dati e premi *Scan folder* (i file nuovi o cambiati vengono messi in coda, quelli spariti rimossi).
 - **Usare un modello di rerank**: imposta `RAG_RERANK_PROVIDER` e `RAG_RERANK_MODEL` (un provider con un endpoint `/rerank`: Jina, Cohere, Voyage, vLLM). Poi confronta con *Run evaluation*.
 - **Cambiare il modello di embedding**: cambialo in Config, poi *Re-index*; nel frattempo le ricerche trovano comunque i passaggi per parole chiave.
+
+- **Far leggere una collezione al bot aperto**: spunta *Open bot* sulla collezione e aggiungi `knowledge` a `TOOLSETS_TELEGRAM` in Config. Solo le collezioni spuntate sono elencate o cercate da quel bot; il resto risponde come se non esistesse.
+- **Indicizzare subito le modifiche**: attiva `RAG_WATCH`. Un file salvato, spostato o eliminato in `workspace/knowledge/<collezione>/` viene indicizzato un paio di secondi dopo (solo Linux; `RAG_SCAN_MINUTES` resta il ripiego).
+- **Leggere il testo delle immagini su questa macchina**: imposta `RAG_OCR_ENGINE` su `tesseract` (sempre locale, gratis, senza limite, solo testo) o `auto` (prima tesseract, il modello vision se trova troppo poco). L'immagine Docker include tesseract con inglese e italiano (`RAG_OCR_LANGS`).
+- **Indicizzare registrazioni**: aggiungi `audio` a `RAG_FORMATS`, scegli `RAG_AUDIO_PROVIDER` e `RAG_AUDIO_MODEL` (un endpoint `/audio/transcriptions` compatibile OpenAI: OpenAI, Groq, Mistral, un server Whisper locale). Si leggono MP3, WAV, M4A, Ogg, FLAC e WebM; ogni passaggio conserva il suo istante (`1:05`). Il suono va a quel provider: se conta, scegline uno locale.
+- **Collezioni molto grandi**: da `RAG_ANN_MIN_CHUNKS` passaggi (500.000) un indice approssimato viene costruito in background e tenuto aggiornato; sotto quella soglia la ricerca è esatta. Alza `RAG_ANN_PROBE` per una precisione migliore.
 
 ## Da sapere
 

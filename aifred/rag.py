@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
@@ -24,11 +25,13 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from aifred import rag_ann, rag_ocr
 from aifred.chunking import Chunk, FormatError, chunk_blocks, chunk_text, join_overlapping, load_document, supported
 from aifred.embeddings import EmbeddingClient, EmbeddingError, from_blob, to_blob
-from aifred.providers import SLUG_RE, ProviderError, embed_target, rerank_target
-from aifred.rag_parse import magic_kind
+from aifred.providers import SLUG_RE, ProviderError, audio_target, embed_target, rerank_target
+from aifred.rag_parse import audio_mime, magic_kind
 from aifred.rag_sandbox import SandboxError, run_parser
+from aifred.rag_watch import FolderWatcher
 from aifred.rag_vision import VisionLimit, VisionOutage, VisionReader, VisionUnavailable, day_start
 from aifred.scanner import scan
 from aifred.store import Store
@@ -50,7 +53,9 @@ BINARY_GROUPS = {
     ".pdf": "pdf", ".docx": "office", ".xlsx": "office", ".pptx": "office", ".odt": "office", ".ods": "office", ".odp": "office",
     ".doc": "office", ".xls": "office", ".ppt": "office", ".epub": "office", ".eml": "office",
     ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
+    ".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".ogg": "audio", ".oga": "audio", ".flac": "audio", ".webm": "audio",
 }
+AUDIO_PROMPT = "audio-transcript-v1"
 CONVERT = {
     ".gif": "convert the image to jpg, png or webp", ".bmp": "convert the image to jpg, png or webp",
     ".tif": "convert the image to jpg, png or webp", ".tiff": "convert the image to jpg, png or webp",
@@ -82,7 +87,7 @@ class Hit:
         dense_rank: Best rank on the dense list, if the chunk was on it.
         keyword_rank: Best rank on the keyword list, if the chunk was on it.
         flagged: Whether the document tripped the injection scanner.
-        vision: Whether the text was produced by a vision model.
+        vision: Whether a machine read the text (a vision model, the OCR engine or a transcription): shown as ``machine-read``.
         page: Page or slide number, when known.
         rerank: Relevance given by the rerank model, when one re-ordered the candidates.
     """
@@ -259,6 +264,13 @@ def _ranges(pages: list[int]) -> str:
     return ", ".join(out)
 
 
+def _clock(seconds: float) -> str:
+    """``m:ss`` (or ``h:mm:ss``) of a position in a recording."""
+    total = int(seconds)
+    hours, rest = divmod(total, 3600)
+    return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
+
+
 def _safe_name(name: str) -> str:
     """A document name from user input: no directories, no control characters."""
     base = PurePosixPath(name.replace("\\", "/")).name
@@ -359,6 +371,7 @@ class RagService:
             tag, provider, model = self._desired(row)
             row["embedding"] = {"provider": provider, "model": model, "tag": tag}
             row["stale"] = self._store.rag_stale_count(row["id"], tag)
+            row["open_access"] = bool(row["open_access"])
             out.append(row)
         return out
 
@@ -370,6 +383,9 @@ class RagService:
         update: dict[str, Any] = {}
         if "description" in fields:
             update["description"] = str(fields["description"] or "").strip()[:500]
+        if "open_access" in fields:
+            update["open_access"] = int(bool(fields["open_access"]))
+            self._store.journal_add("settings", "knowledge", f"collection {name!r} {'opened to' if update['open_access'] else 'closed to'} the open bot")
         if "embed_provider" in fields or "embed_model" in fields:
             provider = fields.get("embed_provider", row["embed_provider"]) or None
             model = fields.get("embed_model", row["embed_model"]) or None
@@ -430,7 +446,7 @@ class RagService:
             head: The first bytes of the content (at least 12 when available).
 
         Returns:
-            ``text``, ``pdf``, ``office`` or ``image``.
+            ``text``, ``pdf``, ``office``, ``image`` or ``audio``.
 
         Raises:
             RagError: If the file is of a kind the knowledge base does not read, its content does not match its
@@ -440,7 +456,7 @@ class RagService:
         if ext in CONVERT:
             raise RagError(CONVERT[ext])
         magic = magic_kind(head)
-        if magic in ("pdf", "image"):
+        if magic in ("pdf", "image", "audio"):
             group = magic
         elif magic in ("zip", "ole") and ext in BINARY_GROUPS and BINARY_GROUPS[ext] == "office":
             group = "office"
@@ -459,7 +475,7 @@ class RagService:
         return group
 
     def _check_size(self, size: int, group: str = "text") -> None:
-        key, label = ("RAG_MAX_IMAGE_BYTES", "image") if group == "image" else ("RAG_MAX_DOCUMENT_BYTES", "document")
+        key, label = {"image": ("RAG_MAX_IMAGE_BYTES", "image"), "audio": ("RAG_MAX_AUDIO_BYTES", "recording")}.get(group, ("RAG_MAX_DOCUMENT_BYTES", "document"))
         limit = int(self._config.get(key))
         if size > limit:
             raise RagError(f"the {label} is {size:,} bytes; the limit is {limit:,} ({key})")
@@ -589,7 +605,7 @@ class RagService:
                     summary["skipped"].append({"path": shown, "reason": str(exc)})
                     continue
                 size = path.stat().st_size
-                group_limit = int(self._config.get("RAG_MAX_IMAGE_BYTES")) if group == "image" else limit
+                group_limit = {"image": int(self._config.get("RAG_MAX_IMAGE_BYTES")), "audio": int(self._config.get("RAG_MAX_AUDIO_BYTES"))}.get(group, limit)
                 if size > group_limit:
                     summary["skipped"].append({"path": shown, "reason": f"larger than {group_limit:,} bytes"})
                     continue
@@ -682,6 +698,8 @@ class RagService:
             name, fallback_title, data = self._read_source(doc)
             group = self.accepts(name, data[:16])
             self._check_size(len(data), group)
+            if group == "audio":
+                return self._index_audio(doc, collection, name, fallback_title, data)
             if group != "text":
                 return self._index_binary(doc, collection, group, fallback_title, data)
             loaded = load_document(name, data, fallback_title)
@@ -709,8 +727,86 @@ class RagService:
         return result
 
     def _read_image(self, image_b64: str, mime: str) -> str:
-        """Text of an image from the vision model (raises the vision exceptions)."""
-        return self.vision.read(base64.b64decode(image_b64), mime)
+        """Text of an image or a scanned page, from the engine chosen by ``RAG_OCR_ENGINE``.
+
+        ``vision`` asks the vision model (it also describes the picture); ``tesseract`` reads printed text on this
+        machine and returns an empty string for a page without any; ``auto`` tries tesseract and asks the vision model
+        when it is missing or finds too little. Raises the vision exceptions, or :class:`RagError` for tesseract.
+        """
+        engine = self._config.get("RAG_OCR_ENGINE")
+        image = base64.b64decode(image_b64)
+        if engine in ("tesseract", "auto"):
+            cfg = self._config
+            try:
+                text = rag_ocr.read(
+                    image, str(cfg.get("RAG_OCR_LANGS")), timeout=float(cfg.get("RAG_PARSE_TIMEOUT")), memory_mb=max(int(cfg.get("RAG_PARSE_MEMORY_MB")), 1536),
+                )
+            except (rag_ocr.OcrUnavailable, rag_ocr.OcrError) as exc:
+                if engine == "tesseract":
+                    raise RagError(str(exc)) from None
+                logger.info("Local OCR skipped, using the vision model: %s", exc)
+                text = ""
+            if engine == "tesseract" or len(text) >= max(1, int(cfg.get("RAG_OCR_MIN_CHARS"))):
+                return text
+        return self.vision.read(image, mime)
+
+    def _transcribe(self, name: str, data: bytes, mime: str) -> list[tuple[float, float, str]]:
+        """Speech to text through ``RAG_AUDIO_PROVIDER`` and ``RAG_AUDIO_MODEL``; the answer is cached by the file's hash."""
+        digest = _sha256(data)
+        cached = self._store.rag_vision_cached(digest, AUDIO_PROMPT)
+        if cached is not None:
+            return [(float(a), float(b), str(t)) for a, b, t in json.loads(cached)]
+        slug, model = self._config.get("RAG_AUDIO_PROVIDER"), self._config.get("RAG_AUDIO_MODEL")
+        if not slug or not model:
+            raise RagError("set RAG_AUDIO_PROVIDER and RAG_AUDIO_MODEL to index recordings")
+        provider = self._providers.by_slug(str(slug))
+        if provider is None:
+            raise RagError(f"the transcription provider {slug!r} no longer exists")
+        if not provider.enabled:
+            raise _Postpone(f"the transcription provider {slug!r} is disabled", None)
+        if reason := self._llm.budget_block(provider):
+            raise _Postpone(f"{slug}: {reason}", RETRY_MAX)
+        try:
+            key = self._providers.usable_key(provider)
+        except ProviderError as exc:
+            raise _Postpone(str(exc), None) from None
+        began = time.monotonic()
+        try:
+            segments = self.embedder.transcribe(audio_target(provider, str(model), key), data, PurePosixPath(name).name or "audio", mime, self._config.get("RAG_AUDIO_LANGUAGE") or None)
+        except EmbeddingError as exc:
+            self._record_usage(provider.id, provider.slug, str(model), 0, int((time.monotonic() - began) * 1000), exc.outcome.value, str(exc))
+            if exc.transient:
+                raise _Postpone(f"transcription service: {exc}", exc.retry_after) from None
+            raise RagError(f"transcription failed: {exc}") from None
+        self._record_usage(provider.id, provider.slug, str(model), 0, int((time.monotonic() - began) * 1000), "success", "")
+        self._store.rag_vision_put(digest, AUDIO_PROMPT, json.dumps(segments), f"{slug}/{model}")
+        return segments
+
+    def _index_audio(self, doc: dict[str, Any], collection: dict[str, Any], name: str, fallback_title: str, data: bytes) -> None:
+        """A recording: transcribe it, group the segments into timed blocks and index them like any other text."""
+        try:
+            segments = self._transcribe(name, data, audio_mime(data[:16]) or "application/octet-stream")
+        except _Postpone as exc:
+            return self._postpone(doc, str(exc), exc.wait)
+        except RagError as exc:
+            return self._fail(doc, str(exc))
+        target = int(self._config.get("RAG_CHUNK_CHARS"))
+        blocks: list[dict[str, Any]] = []
+        current: list[str] = []
+        began = 0.0
+        for start, _end, text in segments:
+            if not current:
+                began = start
+            current.append(text)
+            if sum(len(t) + 1 for t in current) >= target:
+                blocks.append({"page": None, "heading": _clock(began), "text": " ".join(current), "vision": True})
+                current = []
+        if current:
+            blocks.append({"page": None, "heading": _clock(began), "text": " ".join(current), "vision": True})
+        flagged = bool(scan("\n".join(b["text"] for b in blocks)))
+        cfg = self._config
+        chunks = chunk_blocks(blocks, chunk_chars=int(cfg.get("RAG_CHUNK_CHARS")), overlap=int(cfg.get("RAG_CHUNK_OVERLAP")))
+        self._finish(doc, collection, chunks, title=fallback_title, flagged=flagged, kind="audio", data=data)
 
     def _index_binary(self, doc: dict[str, Any], collection: dict[str, Any], group: str, fallback_title: str, data: bytes) -> None:
         """PDF, Office, OpenDocument and image files: parse in the sandbox, read images with the vision model, then as text."""
@@ -851,6 +947,7 @@ class RagService:
 
     def search(
         self, query: str, collections: list[str] | None = None, limit: int | None = None, mode: str = "hybrid", rerank: bool | None = None,
+        *, open_only: bool = False,
     ) -> SearchResult:
         """Search the knowledge base.
 
@@ -860,6 +957,8 @@ class RagService:
             limit: Results to return (1-10); ``RAG_TOP_K`` when omitted.
             mode: ``hybrid`` (default), ``dense`` or ``keyword``.
             rerank: Re-order the best candidates with the rerank model (default: when one is configured).
+            open_only: Search only the collections opened to the open bot (``open_access``); any other name is
+                reported as unknown, so a restricted caller cannot tell it exists.
 
         Raises:
             RagError: For an empty query, an unknown collection or a bad mode.
@@ -871,6 +970,10 @@ class RagService:
             raise RagError("the query is empty")
         limit = max(1, min(int(limit or self._config.get("RAG_TOP_K")), 10))
         rows = [self._require_collection(n) for n in collections] if collections else self._store.rag_collection_list()
+        if open_only:
+            if collections and any(not r["open_access"] for r in rows):
+                raise RagError(f"unknown collection {next(r['name'] for r in rows if not r['open_access'])!r}")
+            rows = [r for r in rows if r["open_access"]]
         result = SearchResult()
         if not rows:
             result.notes.append("the knowledge base has no collections yet")
@@ -968,6 +1071,10 @@ class RagService:
         count = self._store.rag_vector_count(collection_id, tag)
         dim = int(qvec.shape[0])
         generation = self._store.rag_generation(collection_id)
+        if self._ann_wanted(count):
+            approx = self._ann_top(collection_id, tag, qvec, n)
+            if approx is not None:
+                return approx
         if budget > 0 and count * (dim * 4 + 8) <= budget:  # vectors plus their int64 ids
             entry = self.cache.get((collection_id, tag), generation)
             if entry is None:
@@ -986,6 +1093,108 @@ class RagService:
             matrix = np.vstack([from_blob(b) for _, b in good])
             top.add(np.asarray([i for i, _ in good], dtype=np.int64), matrix @ qvec)
         return top.result()
+
+    # Approximate index -------------------------------------------------------------------------------
+
+    def _ann_wanted(self, count: int) -> bool:
+        """Whether a collection of ``count`` vectors should be searched through an index when one exists."""
+        mode = self._config.get("RAG_ANN")
+        return mode == "on" or (mode == "auto" and count >= int(self._config.get("RAG_ANN_MIN_CHUNKS")))
+
+    def _ann_top(self, collection_id: int, tag: str, qvec: np.ndarray, n: int) -> list[tuple[int, float]] | None:
+        """Best ``n`` chunks through the IVF index, or ``None`` when there is no usable index (the exact search then runs)."""
+        record = self._store.rag_ann_get(collection_id, tag)
+        dim = int(qvec.shape[0])
+        if record is None or record["dim"] != dim:
+            return None
+        centres = np.frombuffer(record["centroids"], dtype=np.float32).reshape(record["cells"], dim)
+        qn = qvec / (np.linalg.norm(qvec) or 1.0)
+        cells = rag_ann.nearest_cells(qn, centres, int(self._config.get("RAG_ANN_PROBE")))
+        top = _TopK(n)
+        for wanted in (cells, None):                              # the probed cells, then what the index has not seen yet
+            ids, blobs = self._store.rag_ann_vectors(collection_id, tag, wanted)
+            good = [(i, b) for i, b in zip(ids, blobs, strict=True) if len(b) == dim * 4]
+            if good:
+                top.add(np.asarray([i for i, _ in good], dtype=np.int64), np.vstack([from_blob(b) for _, b in good]) @ qvec)
+        return top.result()
+
+    def build_index(self, name: str, force: bool = False) -> dict[str, Any]:
+        """Build (or rebuild) the approximate index of a collection for its current embedding model.
+
+        Args:
+            name: Collection.
+            force: Build even when the collection is below ``RAG_ANN_MIN_CHUNKS``.
+
+        Returns:
+            ``{"built": bool, "cells": int, "members": int, "reason": str}``.
+
+        Raises:
+            RagError: If the collection does not exist.
+        """
+        row = self._require_collection(name)
+        tag, _, _ = self._desired(row)
+        if tag is None:
+            return {"built": False, "cells": 0, "members": 0, "reason": "no embedding model"}
+        count = self._store.rag_vector_count(row["id"], tag)
+        if count == 0 or (not force and count < int(self._config.get("RAG_ANN_MIN_CHUNKS"))):
+            return {"built": False, "cells": 0, "members": count, "reason": "below the size where an index pays off"}
+        sample_max = rag_ann.MAX_CELLS * rag_ann.SAMPLE_PER_CELL
+        cells = rag_ann.cell_count(count)
+        stride = max(1, count // max(cells * rag_ann.SAMPLE_PER_CELL, 1))
+        sample: list[np.ndarray] = []
+        seen = 0
+        for _ids, blobs in self._store.rag_vector_blocks(row["id"], tag, SCAN_BLOCK):
+            for blob in blobs:
+                if seen % stride == 0 and len(sample) < sample_max:
+                    sample.append(from_blob(blob))
+                seen += 1
+        dims = {v.shape[0] for v in sample}
+        if len(dims) != 1:
+            return {"built": False, "cells": 0, "members": count, "reason": "vectors of mixed dimensions"}
+        centres = rag_ann.kmeans(np.vstack(sample), cells)
+        dim = int(centres.shape[1])
+        assignments: list[tuple[int, int]] = []
+        for ids, blobs in self._store.rag_vector_blocks(row["id"], tag, SCAN_BLOCK):
+            good = [(i, b) for i, b in zip(ids, blobs, strict=True) if len(b) == dim * 4]
+            if good:
+                matrix = np.vstack([from_blob(b) for _, b in good])
+                labels = rag_ann.assign(matrix, centres)
+                assignments.extend((i, int(c)) for (i, _), c in zip(good, labels, strict=True))
+        self._store.rag_ann_replace(row["id"], tag, dim, centres.tobytes(), assignments)
+        self._store.journal_add("settings", "knowledge", f"approximate index of {name!r} built ({len(centres)} cells, {len(assignments)} vectors)")
+        return {"built": True, "cells": len(centres), "members": len(assignments), "reason": ""}
+
+    def maintain_indexes(self) -> int:
+        """Build the index of every collection that needs one, and rebuild the ones that fell behind; returns how many."""
+        mode = self._config.get("RAG_ANN")
+        done = 0
+        for row in self._store.rag_collection_list():
+            tag, _, _ = self._desired(row)
+            if tag is None:
+                continue
+            count = self._store.rag_vector_count(row["id"], tag)
+            record = self._store.rag_ann_get(row["id"], tag)
+            if mode == "off" or not self._ann_wanted(count):
+                if record is not None:
+                    self._store.rag_ann_drop(row["id"], tag)
+                continue
+            behind = record is None or self._store.rag_ann_unindexed(row["id"], tag) > max(100, count // 10)
+            if behind and self.build_index(row["name"], force=mode == "on")["built"]:
+                done += 1
+        return done
+
+    def index_status(self) -> list[dict[str, Any]]:
+        """Per collection: whether an index exists and how far behind it is (for the dashboard)."""
+        out = []
+        for row in self._store.rag_collection_list():
+            tag, _, _ = self._desired(row)
+            record = self._store.rag_ann_get(row["id"], tag) if tag else None
+            count = self._store.rag_vector_count(row["id"], tag) if tag else 0
+            out.append({
+                "collection": row["name"], "vectors": count, "indexed": bool(record), "cells": record["cells"] if record else 0,
+                "unindexed": self._store.rag_ann_unindexed(row["id"], tag) if record and tag else 0, "used": bool(record) and self._ann_wanted(count),
+            })
+        return out
 
     def _load_matrix(self, collection_id: int, tag: str, count: int, dim: int, generation: int) -> _Entry:
         """Stream a collection's vectors into one preallocated matrix (peak memory: the matrix plus one block)."""
@@ -1044,6 +1253,9 @@ class RagService:
             "enabled": self.enabled, **self._store.rag_status(), "cache_bytes": self.cache.size_bytes(),
             "embedding": {"provider": self._config.get("RAG_EMBED_PROVIDER"), "model": self._config.get("RAG_EMBED_MODEL")},
             "vision": self.vision.status(), "formats": list(self._config.get("RAG_FORMATS")),
+            "index": self.index_status(),
+            "ocr": {"engine": self._config.get("RAG_OCR_ENGINE"), "installed": rag_ocr.executable() is not None, "langs": self._config.get("RAG_OCR_LANGS")},
+            "watch": bool(self._config.get("RAG_WATCH")),
         }
 
 
@@ -1069,6 +1281,8 @@ class RagWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_scan = 0.0
+        self._last_index = 0.0
+        self._watcher: FolderWatcher | None = None
 
     @property
     def running(self) -> bool:
@@ -1081,6 +1295,7 @@ class RagWorker:
             return
         self._stop.clear()
         self._service.recover()
+        self._sync_watcher()
         self._thread = threading.Thread(target=self._run, name="rag-worker", daemon=True)
         self._thread.start()
 
@@ -1088,20 +1303,51 @@ class RagWorker:
         """Ask the thread to finish and wait for it."""
         self._stop.set()
         self._service.wake()
+        if self._watcher:
+            self._watcher.stop()
+            self._watcher = None
         if self._thread:
             self._thread.join(timeout=15)
+
+    def _sync_watcher(self) -> None:
+        """Follow the ``RAG_WATCH`` setting: start the folder watcher when it is on, stop it when it is off."""
+        wanted = bool(self._service._config.get("RAG_WATCH"))
+        if wanted and self._watcher is None:
+            self._service.folder.mkdir(parents=True, exist_ok=True)
+            watcher = FolderWatcher(self._service.folder, self._on_folder_change, float(self._service._config.get("RAG_WATCH_SETTLE")))
+            if watcher.start():
+                self._watcher = watcher
+        elif not wanted and self._watcher is not None:
+            self._watcher.stop()
+            self._watcher = None
+
+    def _on_folder_change(self, collection: str | None) -> None:
+        self._service.scan(collection)
+
+    @property
+    def watching(self) -> bool:
+        """Whether the folder watcher is running."""
+        return self._watcher is not None and self._watcher.running
 
     def _run(self) -> None:
         service = self._service
         while not self._stop.is_set():
             try:
+                self._sync_watcher()
                 self._maybe_scan()
                 if service.process_next():
                     continue
+                self._maybe_index()
             except Exception:  # noqa: BLE001
                 logger.exception("Knowledge-base worker error")
             service._wake.wait(self._poll)
             service._wake.clear()
+
+    def _maybe_index(self) -> None:
+        """Between documents, at most every ten minutes, build or refresh approximate indexes."""
+        if time.time() - self._last_index >= 600:
+            self._last_index = time.time()
+            self._service.maintain_indexes()
 
     def _maybe_scan(self) -> None:
         minutes = int(self._service._config.get("RAG_SCAN_MINUTES"))

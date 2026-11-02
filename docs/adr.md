@@ -118,6 +118,10 @@ The knowledge base stores a few thousand to a few tens of thousands of chunks, e
 
 ---
 
+### Addendum (2 November 2026): an approximate index beyond 500,000 chunks
+
+The trigger named above was reached as a design item, not as a measured problem. The approximate index is an inverted file (IVF) in plain numpy and SQLite, built only for collections of `RAG_ANN_MIN_CHUNKS` vectors or more (or when `RAG_ANN` is `on`). It was chosen over `sqlite-vec` (a native extension the image does not ship and would have to track per platform) and over HNSW (a graph that is costly to update in place and to store in SQLite): IVF has no new dependency, is updated by assigning new chunks to the remainder that an exact scan covers, and costs a query only the vectors of a few cells read from the database, which also removes the memory ceiling of the exact search. The price is approximate recall (tunable with `RAG_ANN_PROBE`; exact when every cell is probed). Exact search remains the default and the reference for the golden-question evaluation.
+
 ## ADR-004: reading PDF, Office documents and images for the knowledge base
 
 **Date:** 26 October 2026. **Status:** accepted on 26 October 2026 (decision D9). It adds two dependencies for the second step of the knowledge base (specification 9.4).

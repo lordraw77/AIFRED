@@ -66,8 +66,8 @@ class RagStoreMixin:
         )
 
     def rag_collection_update(self, name: str, fields: dict[str, Any]) -> bool:
-        """Update ``description``, ``embed_provider`` or ``embed_model``; returns whether it exists."""
-        allowed = {k: v for k, v in fields.items() if k in ("description", "embed_provider", "embed_model")}
+        """Update ``description``, ``embed_provider``, ``embed_model`` or ``open_access``; returns whether it exists."""
+        allowed = {k: v for k, v in fields.items() if k in ("description", "embed_provider", "embed_model", "open_access")}
         if not allowed:
             return self.rag_collection_get(name) is not None
         assignments = ", ".join(f"{k} = ?" for k in allowed)
@@ -286,6 +286,71 @@ class RagStoreMixin:
                 return
             last = rows[-1]["id"]
             yield [r["id"] for r in rows], [bytes(r["embedding"]) for r in rows]
+
+    # Approximate index (IVF)
+
+    def rag_ann_get(self, collection_id: int, tag: str) -> dict[str, Any] | None:
+        """The index record of a collection and embedding model (centres included), or ``None``."""
+        return self._one("SELECT * FROM rag_ann WHERE collection_id = ? AND tag = ?", (collection_id, tag))
+
+    def rag_ann_replace(self, collection_id: int, tag: str, dim: int, centroids: bytes, assignments: list[tuple[int, int]]) -> None:
+        """Replace the index of a collection in one transaction (a failed build leaves the old one in place).
+
+        Args:
+            collection_id: Collection.
+            tag: Embedding model tag the vectors came from.
+            dim: Vector dimension.
+            centroids: Float32 centres, row by row.
+            assignments: ``(chunk id, cell)`` pairs.
+        """
+        cells = len(centroids) // (dim * 4)
+        with self._tx() as c:
+            c.execute("DELETE FROM rag_ann_cells WHERE collection_id = ? AND tag = ?", (collection_id, tag))
+            c.executemany(
+                "INSERT OR REPLACE INTO rag_ann_cells (chunk_id, collection_id, tag, cell) VALUES (?, ?, ?, ?)",
+                [(cid, collection_id, tag, cell) for cid, cell in assignments],
+            )
+            c.execute(
+                "INSERT OR REPLACE INTO rag_ann (collection_id, tag, dim, cells, centroids, members, built) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (collection_id, tag, dim, cells, centroids, len(assignments), time.time()),
+            )
+
+    def rag_ann_drop(self, collection_id: int, tag: str | None = None) -> None:
+        """Remove the index of a collection (of one model, or of all)."""
+        with self._tx() as c:
+            if tag is None:
+                c.execute("DELETE FROM rag_ann_cells WHERE collection_id = ?", (collection_id,))
+                c.execute("DELETE FROM rag_ann WHERE collection_id = ?", (collection_id,))
+            else:
+                c.execute("DELETE FROM rag_ann_cells WHERE collection_id = ? AND tag = ?", (collection_id, tag))
+                c.execute("DELETE FROM rag_ann WHERE collection_id = ? AND tag = ?", (collection_id, tag))
+
+    def rag_ann_unindexed(self, collection_id: int, tag: str) -> int:
+        """Embedded chunks that the index does not know yet (added after it was built)."""
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM rag_chunks c JOIN rag_documents d ON d.id = c.document_id "
+            "LEFT JOIN rag_ann_cells a ON a.chunk_id = c.id "
+            "WHERE d.collection_id = ? AND d.embed_tag = ? AND c.embedding IS NOT NULL AND a.chunk_id IS NULL",
+            (collection_id, tag),
+        )
+        return int(row["n"]) if row else 0
+
+    def rag_ann_vectors(self, collection_id: int, tag: str, cells: list[int] | None) -> tuple[list[int], list[bytes]]:
+        """Vectors of the given cells, or of the chunks outside every cell when ``cells`` is ``None``."""
+        if cells is None:
+            rows = self._query(
+                "SELECT c.id, c.embedding FROM rag_chunks c JOIN rag_documents d ON d.id = c.document_id "
+                "LEFT JOIN rag_ann_cells a ON a.chunk_id = c.id "
+                "WHERE d.collection_id = ? AND d.embed_tag = ? AND c.embedding IS NOT NULL AND a.chunk_id IS NULL",
+                (collection_id, tag),
+            )
+        else:
+            rows = self._query(
+                "SELECT c.id, c.embedding FROM rag_ann_cells a JOIN rag_chunks c ON c.id = a.chunk_id "
+                f"WHERE a.collection_id = ? AND a.tag = ? AND a.cell IN ({', '.join('?' * len(cells))}) AND c.embedding IS NOT NULL",
+                (collection_id, tag, *cells),
+            )
+        return [r["id"] for r in rows], [bytes(r["embedding"]) for r in rows]
 
     def rag_fts(self, match: str, collection_ids: list[int] | None, limit: int) -> list[dict[str, Any]]:
         """BM25 search over chunk text and headings; best first."""

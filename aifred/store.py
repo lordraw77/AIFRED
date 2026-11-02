@@ -547,6 +547,29 @@ _MIGRATIONS: list[str] = [
     ALTER TABLE models ADD COLUMN first_token_timeout REAL;
     UPDATE providers SET first_token_timeout = 60 WHERE first_token_timeout = 30;
     """,
+    # 16: an approximate (IVF) index for big collections and collections the open Telegram bot may search
+    """
+    ALTER TABLE rag_collections ADD COLUMN open_access INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TABLE rag_ann (
+        collection_id INTEGER NOT NULL REFERENCES rag_collections(id) ON DELETE CASCADE,
+        tag TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        cells INTEGER NOT NULL,
+        centroids BLOB NOT NULL,
+        members INTEGER NOT NULL,
+        built REAL NOT NULL,
+        PRIMARY KEY (collection_id, tag)
+    );
+
+    CREATE TABLE rag_ann_cells (
+        chunk_id INTEGER PRIMARY KEY REFERENCES rag_chunks(id) ON DELETE CASCADE,
+        collection_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        cell INTEGER NOT NULL
+    );
+    CREATE INDEX rag_ann_cells_cell ON rag_ann_cells(collection_id, tag, cell);
+    """,
 ]
 
 
