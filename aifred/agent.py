@@ -232,7 +232,7 @@ class Agent:
                 lines += ["", "## Skills (load one with skill_view when it fits the task)"]
                 lines += [f"- {name}: {desc}" for name, desc in skills]
         if "knowledge_search" in names:
-            collections = s.rag.collections()
+            collections = [c for c in s.rag.collections() if c["open_access"] or not ctx.restricted]
             if collections:
                 lines += ["", "## Knowledge base (the user's own documents; search it with knowledge_search and cite the source)"]
                 for c in collections[:15]:

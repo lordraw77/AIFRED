@@ -2,7 +2,7 @@
 import { ago, attempt, badge, bytes, button, busy, clear, dangerButton, del, disclosure, empty, field, get, h, number, panel, post, put, skeleton, state, toast } from "../core.js";
 
 const STATUS_KIND = { ready: "ok", queued: "", indexing: "warn", waiting: "warn", partial: "warn", error: "err" };
-const ACCEPT = ".md,.txt,.rst,.html,.json,.csv,.yaml,.yml,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.jpg,.jpeg,.png,.webp";
+const ACCEPT = ".md,.txt,.rst,.html,.json,.csv,.yaml,.yml,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.ogg,.flac";
 
 export default {
   async render(root, ctx) {
@@ -22,7 +22,7 @@ export default {
       const [st, collections, docs] = await Promise.all([get("/api/rag/status"), get("/api/rag/collections"), get(`/api/rag/documents${collection ? `?collection=${encodeURIComponent(collection)}` : ""}`)]);
       ctx.setCount(st.documents ? Object.values(st.documents).reduce((a, b) => a + b, 0) : 0);
       clear(body);
-      body.append(statusPanel(st), collectionsPanel(collections), documentsPanel(collections, docs), searchPanel(collections), qualityPanel(collections, docs));
+      body.append(statusPanel(st), collectionsPanel(collections, st.index), documentsPanel(collections, docs), searchPanel(collections), qualityPanel(collections, docs));
       clearTimeout(timer);
       if (docs.some((d) => ["queued", "indexing", "waiting"].includes(d.status))) timer = setTimeout(draw, 3000);
     }
@@ -36,6 +36,7 @@ export default {
           h("div", { class: "stat" }, h("div", { class: "value" }, bytes(st.cache_bytes)), h("div", { class: "label" }, "Vector cache")),
           Object.entries(st.documents || {}).map(([k, v]) => h("div", { class: "stat" }, h("div", { class: "value" }, String(v)), h("div", { class: "label" }, k)))),
         visionBlock(st.vision),
+        h("p", { class: "hint" }, `Text in images: ${st.ocr.engine}${st.ocr.engine === "vision" ? "" : st.ocr.installed ? ` (tesseract, ${st.ocr.langs})` : " (tesseract is not installed here)"}. Folder watcher: ${st.watch ? "on" : "off"}. Recordings: ${st.formats.includes("audio") ? "on" : "off"}.`),
         h("p", { class: "hint" }, e.model ? `Embedding model: ${e.provider} / ${e.model}. The text of your documents is sent to that provider to be embedded.` : "No embedding model chosen: search is keyword-only. Set RAG_EMBED_PROVIDER and RAG_EMBED_MODEL on the Config page."));
     }
 
@@ -50,19 +51,33 @@ export default {
         h("p", { class: "hint" }, v.models.length ? `Images and scanned pages are sent to: ${v.models.join(", ")} (first answers; the others are fallbacks).` : `No vision model yet: images and scanned pages cannot be read. Put a model that passed Test vision on the ${v.route} route (Models page). Nothing is sent anywhere until you do.`));
     }
 
-    function collectionsPanel(collections) {
+    function collectionsPanel(collections, index) {
       const name = h("input", { type: "text", placeholder: "collection name", pattern: "[a-z0-9][a-z0-9_\\-]{0,31}" });
       const desc = h("input", { type: "text", placeholder: "what is in it" });
       const rows = collections.map((c) => h("tr", {},
         h("td", { class: "mono" }, c.name, c.stale > 0 && badge("re-index needed", "warn")), h("td", {}, c.description || "–"), h("td", { class: "mono" }, `${c.documents} docs · ${number(c.chunk_count)} passages`),
         h("td", { class: "mono" }, c.embedding.model ? `${c.embedding.provider} / ${c.embedding.model}` : "keyword only"),
-        h("td", {}, c.pending > 0 && badge(`${c.pending} indexing`, "warn"), c.errors > 0 && badge(`${c.errors} failed`, "err")),
-        h("td", { class: "row" }, button("Re-index", async () => { const r = await attempt(() => post("/api/rag/reindex", { collection: c.name })); if (r) { toast(`${r.queued} documents queued`, "ok"); draw(); } }, { small: true, iconName: "refresh" }),
+        h("td", {}, c.pending > 0 && badge(`${c.pending} indexing`, "warn"), c.errors > 0 && badge(`${c.errors} failed`, "err"), indexBadge(index.find((i) => i.collection === c.name))),
+        h("td", {}, openToggle(c)),
+        h("td", { class: "row" }, button("Build index", async () => { const r = await attempt(() => post(`/api/rag/collections/${encodeURIComponent(c.name)}/index`, {})); if (r) { toast(r.built ? `Index built: ${r.cells} cells, ${number(r.members)} passages` : `Not built: ${r.reason}`, r.built ? "ok" : "info"); draw(); } }, { small: true }),
+          button("Re-index", async () => { const r = await attempt(() => post("/api/rag/reindex", { collection: c.name })); if (r) { toast(`${r.queued} documents queued`, "ok"); draw(); } }, { small: true, iconName: "refresh" }),
           dangerButton("Delete", async () => { if (await attempt(() => del(`/api/rag/collections/${encodeURIComponent(c.name)}`), "Collection deleted")) { if (collection === c.name) collection = ""; draw(); } }))));
       return panel("Collections", "knowledge",
-        collections.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Description", "Size", "Embedding", "State", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : empty("No collection yet. Create one below, then add documents."),
+        collections.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Description", "Size", "Embedding", "State", "Open bot", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : empty("No collection yet. Create one below, then add documents."),
         h("div", { class: "row pad-t" }, name, desc, button("Create", async () => { if (name.value.trim() && await attempt(() => post("/api/rag/collections", { name: name.value.trim(), description: desc.value.trim() }), "Collection created")) draw(); }, { primary: true, small: true, iconName: "plus" }),
           button("Scan folder", async () => { const r = await attempt(() => post("/api/rag/scan", {})); if (r) { toast(`Scan: ${r.queued} queued, ${r.unchanged} unchanged, ${r.removed} removed`, "ok"); draw(); } }, { small: true, iconName: "refresh" })));
+    }
+
+    function indexBadge(i) {
+      if (!i || !i.indexed) return null;
+      return badge(i.used ? `approximate index · ${i.cells} cells` : `index ready, unused (below the size limit)`, i.unindexed ? "warn" : "ok");
+    }
+
+    function openToggle(c) {
+      const box = h("input", { type: "checkbox", "aria-label": `Let the open Telegram bot search ${c.name}`, title: "The open Telegram bot may search this collection (it also needs the knowledge toolset on in TOOLSETS_TELEGRAM)" });
+      box.checked = c.open_access;
+      box.onchange = async () => { if (!(await attempt(() => put(`/api/rag/collections/${encodeURIComponent(c.name)}`, { open_access: box.checked }), box.checked ? "Open to the bot" : "Closed to the bot"))) box.checked = !box.checked; };
+      return box;
     }
 
     function documentsPanel(collections, docs) {

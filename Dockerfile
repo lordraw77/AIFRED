@@ -12,7 +12,7 @@ COPY requirements.lock /tmp/requirements.lock
 RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.lock
 
 FROM ${PYTHON_IMAGE}
-ARG VERSION=0.9.1
+ARG VERSION=0.10.0
 LABEL org.opencontainers.image.title="AIFRED" \
       org.opencontainers.image.description="A lean, self-hosted personal AI agent" \
       org.opencontainers.image.version="${VERSION}" \
@@ -28,6 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade 
 
 # the ssh client of the remote terminal (the `ssh` toolset, off until SSH_HOSTS and SSH_PRIVATE_KEY are set)
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
+ && rm -rf /var/lib/apt/lists/*
+
+# local OCR for the knowledge base (RAG_OCR_ENGINE=tesseract or auto): English and Italian language packs
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-ita \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 aifred \

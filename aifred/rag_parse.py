@@ -75,6 +75,25 @@ def magic_kind(head: bytes) -> str | None:
         return "zip"
     if head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
         return "ole"
+    if audio_mime(head):
+        return "audio"
+    return None
+
+
+def audio_mime(head: bytes) -> str | None:
+    """The MIME type of a sound file recognised by its first bytes (WAV, MP3, Ogg, FLAC, M4A, WebM), else ``None``."""
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "audio/wav"
+    if head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
+        return "audio/mpeg"
+    if head.startswith(b"OggS"):
+        return "audio/ogg"
+    if head.startswith(b"fLaC"):
+        return "audio/flac"
+    if head[4:8] == b"ftyp":
+        return "audio/mp4"
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "audio/webm"
     return None
 
 

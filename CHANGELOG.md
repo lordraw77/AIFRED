@@ -2,6 +2,18 @@
 
 All notable changes to AIFRED. The format follows [Keep a Changelog](https://keepachangelog.com/); the first release is `0.1.0`.
 
+## [0.10.0] - 2026-11-02
+
+### Added
+- **Approximate index for very large collections.** From `RAG_ANN_MIN_CHUNKS` passages (500,000) a collection gets an inverted-file index (k-means cells stored in SQLite, numpy only); a query reads the `RAG_ANN_PROBE` nearest cells plus the passages added since the build, so memory no longer limits the collection. Built and refreshed in the background, or at once with *Build index* (`POST /api/rag/collections/{name}/index`). `RAG_ANN` is `auto`, `on` or `off`; exact search stays the default. Database migration 16.
+- **Collections for the open Telegram bot.** *Open bot* on a collection lets the bot search that collection and no other (the others are invisible, not just refused); the `knowledge` toolset must also be on in `TOOLSETS_TELEGRAM`. The bot still has no memory and cannot write to the knowledge base.
+- **Folder watcher.** `RAG_WATCH` (inotify, Linux) indexes files saved, moved or deleted under `workspace/knowledge/` a couple of seconds later (`RAG_WATCH_SETTLE`), one scan per burst of changes. `RAG_SCAN_MINUTES` remains the fallback.
+- **Local OCR.** `RAG_OCR_ENGINE` `tesseract` reads images and scanned PDF pages on the machine (no provider, no daily limit, text only, sandboxed like the parsers); `auto` tries tesseract first and falls back to the vision model. `RAG_OCR_LANGS` (`eng+ita`). The Docker image now includes tesseract with English and Italian.
+- **Recordings.** `audio` in `RAG_FORMATS` accepts WAV, MP3, M4A, Ogg, FLAC and WebM, transcribed through `RAG_AUDIO_PROVIDER` / `RAG_AUDIO_MODEL` (an OpenAI-compatible `/audio/transcriptions` endpoint). Passages keep their time, are marked `machine-read`, and transcripts are cached by file hash. Off by default.
+
+### Not done
+- Image embeddings (multimodal vectors): no provider-neutral API exists; pictures are searched through their OCR text and description. Still on the roadmap.
+
 ## [0.9.1] - 2026-11-02
 
 ### Added

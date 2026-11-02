@@ -138,7 +138,18 @@ Every setting of AIFRED, in one page, grouped by topic. Changes apply at once, w
 | `RAG_MAX_CHUNKS` | 100000 | Most passages in the whole base. |
 | `RAG_CACHE_MB` | 512 | Memory for fast search (0: read the database each time). |
 | `RAG_SCAN_MINUTES` | 0 | Re-scan the knowledge folder every N minutes (0: only on request). |
-| `RAG_FORMATS` | text, pdf, office, image | Formats accepted. |
+| `RAG_FORMATS` | text, pdf, office, image | Formats accepted: text, pdf, office, image, audio (audio is not on by default: the sound goes to the speech-to-text provider). |
+| `RAG_WATCH` | off | Watch the knowledge folder (inotify, Linux) and index changes within seconds. |
+| `RAG_WATCH_SETTLE` | 2 | Seconds without file events before the watcher scans a collection. |
+| `RAG_ANN` | auto | Approximate (IVF) index for big collections: `auto`, `on` or `off`. |
+| `RAG_ANN_MIN_CHUNKS` | 500000 | Passages in one collection from which `auto` builds the approximate index. |
+| `RAG_ANN_PROBE` | 8 | Cells an approximate query reads (more: better recall, slower). |
+| `RAG_OCR_ENGINE` | vision | Who reads text in images and scanned pages: `vision`, `tesseract` (on this machine) or `auto`. |
+| `RAG_OCR_LANGS` | eng+ita | Tesseract language packs joined by `+`. |
+| `RAG_AUDIO_PROVIDER` | – | Provider of the speech-to-text model for recordings. |
+| `RAG_AUDIO_MODEL` | – | Speech-to-text model (for example `whisper-1`). |
+| `RAG_AUDIO_LANGUAGE` | – | Language of the recordings (ISO 639-1; empty: detected). |
+| `RAG_MAX_AUDIO_BYTES` | 25 MB | Largest recording accepted. |
 | `RAG_VISION_ROUTE` | vision | The route whose model reads images and scanned pages. |
 | `RAG_VISION_DAILY_LIMIT` | 200 | Images and scanned pages sent to the vision model per day (0: vision off). |
 | `RAG_MAX_IMAGE_BYTES` | 10 MB | Largest image. |

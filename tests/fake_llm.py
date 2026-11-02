@@ -158,6 +158,10 @@ class FakeLLM:
         self.rerank_fn: Any = None
         self.embed_steps: list[Status] = []
         self.embed_dim = 256
+        self.transcribe_requests: list[Received] = []
+        self.transcribe_steps: list[Status] = []
+        self.transcript: list[dict[str, Any]] = [{"start": 0.0, "end": 4.0, "text": "restart the proxmox web proxy"}]
+        self.transcribe_verbose = True
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
         self.port = 0
@@ -246,6 +250,21 @@ class FakeLLM:
                     "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
                 }
             )
+
+        @app.post("/v1/audio/transcriptions")
+        async def transcriptions(request: Request) -> Any:
+            raw = await request.body()
+            self.transcribe_requests.append(Received({"raw": raw, "content_type": request.headers.get("content-type", "")}, {k.lower(): v for k, v in request.headers.items()}))
+            if not self._authorised(request):
+                return JSONResponse({"error": {"message": "Incorrect API key provided"}}, status_code=401)
+            if self.transcribe_steps:
+                step = self.transcribe_steps.pop(0)
+                return JSONResponse(step.body if step.body is not None else {"error": {"message": f"status {step.code}"}}, status_code=step.code)
+            verbose = b"verbose_json" in raw
+            if verbose and not self.transcribe_verbose:
+                return JSONResponse({"error": {"message": "response_format not supported"}}, status_code=400)
+            text = " ".join(seg["text"] for seg in self.transcript)
+            return JSONResponse({"text": text, "segments": self.transcript} if verbose else {"text": text})
 
         @app.post("/v1/rerank")
         async def rerank(request: Request) -> Any:

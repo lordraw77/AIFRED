@@ -771,6 +771,14 @@ def embed_target(provider: Provider, model: str, api_key: str | None) -> EmbedTa
     )
 
 
+def audio_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:
+    """Where to call a provider's ``/audio/transcriptions`` endpoint (OpenAI, Groq, Mistral, a local Whisper server)."""
+    return EmbedTarget(
+        url=f"{provider.base_url.rstrip('/')}/audio/transcriptions", model=model, api_key=api_key, headers=provider.headers,
+        verify=provider.verify_tls, connect=provider.connect, total=max(provider.total, 300.0),
+    )
+
+
 def rerank_target(provider: Provider, model: str, api_key: str | None) -> EmbedTarget:
     """Where to call a provider's ``/rerank`` endpoint (the shape Jina, Cohere, Voyage and vLLM share)."""
     return EmbedTarget(
