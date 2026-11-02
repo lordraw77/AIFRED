@@ -311,14 +311,32 @@ async def test_context_too_long_only_tries_larger_windows(env: Env) -> None:
     assert env.health("entry", f"{pa.id}|test-model") is None  # no cooldown for context errors
 
 
-async def test_other_4xx_fails_without_failover(env: Env) -> None:
+async def test_a_rejected_request_goes_to_the_next_entry_without_a_cooldown(env: Env) -> None:
     pa, fa = env.add("a")
+    env.add("b")
+    env.route("a", "b")
+    fa.queue(Status(400, {"error": {"message": "Bad input: messages must be strings"}}))
+    assert completed(await env.ask()).entry.label == "b/test-model"
+    assert env.health("entry", f"{pa.id}|test-model") is None  # the next request tries "a" again
+
+
+async def test_when_every_entry_rejects_the_request_the_first_rejection_is_raised(env: Env) -> None:
+    _, fa = env.add("a")
     _, fb = env.add("b")
     env.route("a", "b")
     fa.queue(Status(400, {"error": {"message": "content policy violation"}}))
+    fb.queue(Status(400, {"error": {"message": "something else"}}))
     with pytest.raises(LLMError) as exc:
         await env.ask()
-    assert exc.value.outcome is Outcome.FATAL and fb.requests == []
+    assert exc.value.outcome is Outcome.FATAL and "content policy" in str(exc.value)
+
+
+async def test_413_is_a_context_error_and_falls_back(env: Env) -> None:
+    pa, fa = env.add("a")
+    env.add("b")
+    env.route("a", "b")
+    fa.queue(Status(413, {"errors": [{"message": "estimated tokens exceeded this model context window limit (24000)"}]}))
+    assert completed(await env.ask()).entry.label == "b/test-model"
     assert env.health("entry", f"{pa.id}|test-model") is None
 
 
@@ -595,3 +613,20 @@ def test_entry_helpers(env: Env) -> None:
     p, _ = env.add("a")
     e = Entry(None, p, "m")
     assert e.label == "a/m" and e.ref == f"{p.id}|m"
+
+
+async def test_a_models_own_first_token_timeout_beats_the_providers_and_a_route_entry_beats_both(env: Env) -> None:
+    pa, _ = env.add("a")
+    env.route("a")
+    assert env.router.resolve("default")[0].first_token is None
+    env.services.providers.save_models(pa.id, [{"model_id": "test-model", "first_token_timeout": "90"}])
+    entry = env.router.resolve("default")[0]
+    assert entry.first_token == 90.0
+    assert env.router._endpoint(entry, None).first_token == 90.0
+    env.services.llm.set_route("default", [{"provider": "a", "model": "test-model", "timeouts": {"first_token": 15}}])
+    assert env.router._endpoint(env.router.resolve("default")[0], None).first_token == 15.0
+    env.services.providers.save_models(pa.id, [{"model_id": "test-model", "first_token_timeout": None}])
+    assert env.router.resolve("default")[0].first_token is None
+    for bad in ("0", "601", "abc"):
+        with pytest.raises(ProviderError):
+            env.services.providers.save_models(pa.id, [{"model_id": "test-model", "first_token_timeout": bad}])

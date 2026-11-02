@@ -179,6 +179,16 @@ export default {
       return [pin, pout];
     }
 
+    // Seconds to wait for the first token of this model; empty uses the provider's value.
+    function firstTokenInput(p, m) {
+      const input = h("input", { class: "price", type: "number", min: "1", max: "600", step: "1", placeholder: String(p.first_token_timeout ?? 60), "aria-label": "First-token timeout in seconds", value: m.first_token_timeout ?? "" });
+      input.addEventListener("change", async () => {
+        const value = input.value.trim() === "" ? null : Number(input.value);
+        if (await attempt(() => put(`/api/providers/${p.id}/models`, [{ model_id: m.model_id, first_token_timeout: value }]), "Timeout saved")) redraw();
+      });
+      return input;
+    }
+
     function modelsTable(p, models) {
       const rows = models.map((m) => {
         const t = button(m.kind === "embedding" ? "Test embedding" : "Test", null, { small: true });
@@ -194,7 +204,7 @@ export default {
         });
         const status = m.test_ok === true ? badge(m.kind === "embedding" ? `ok · ${m.dim}d` : "tools ok", "ok") : m.test_ok === false ? badge("failed", "err") : badge("not tested");
         return h("tr", {}, h("td", { class: "mono" }, m.model_id, !m.available && badge("gone", "warn")), h("td", {}, m.kind), h("td", { class: "mono" }, m.context_window ? number(m.context_window) : "–"),
-          h("td", { class: "row" }, ...priceInputs(p, m)),
+          h("td", { class: "row" }, ...priceInputs(p, m)), h("td", {}, firstTokenInput(p, m)),
           h("td", {}, status, m.test_error && h("div", { class: "hint" }, m.test_error)), h("td", {}, m.vision && m.vision_tested ? badge("reads images", "ok") : m.vision_tested ? badge("cannot read", "err") : m.vision ? badge("claims vision") : "–", m.vision_error && h("div", { class: "hint" }, m.vision_error)), h("td", { class: "row" }, t, m.kind === "embedding" ? null : eyes));
       });
       const idIn = h("input", { type: "text", placeholder: "model id, for example llama3.1:8b" });
@@ -202,7 +212,7 @@ export default {
         if (idIn.value.trim() && await attempt(() => put(`/api/providers/${p.id}/models`, [{ model_id: idIn.value.trim() }]), "Model added")) { open.add(p.id); redraw(); }
       }, { small: true, iconName: "plus" }));
       return h("div", { class: "stack" },
-        rows.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Model", "Kind", "Context", "Price per 1M tokens (USD, in / out)", "Test", "Vision", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "No models listed. Use Refresh models, or add one by hand."),
+        rows.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Model", "Kind", "Context", "Price per 1M tokens (USD, in / out)", "First token (s)", "Test", "Vision", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "No models listed. Use Refresh models, or add one by hand."),
         add);
     }
 

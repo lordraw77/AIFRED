@@ -165,7 +165,7 @@ def classify_http(status: int, body: str, headers: httpx.Headers | dict[str, str
         return error(Outcome.TIMEOUT)
     if status >= 500:
         return error(Outcome.UNAVAILABLE)
-    if status == 400 and any(w in text for w in _CONTEXT_WORDS):
+    if status == 413 or (status in (400, 422) and any(w in text for w in _CONTEXT_WORDS)):
         return error(Outcome.CONTEXT)
     return error(Outcome.FATAL)
 

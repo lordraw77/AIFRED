@@ -33,7 +33,7 @@ def test_create_defaults(services: Services, fake_llm: Callable[[], FakeLLM]) ->
     assert p.verify_tls is True and p.enabled and p.chat_url.endswith("/v1/chat/completions")
     assert services.store.journal_list(kind="settings")[0]["summary"].startswith("provider 'local1'")
     groq = services.providers.create({"slug": "g", "type": "groq"})
-    assert (groq.connect, groq.first_token, groq.stall, groq.total) == (10.0, 30.0, 60.0, 300.0)
+    assert (groq.connect, groq.first_token, groq.stall, groq.total) == (10.0, 60.0, 60.0, 300.0)
 
 
 @pytest.mark.parametrize(
@@ -234,8 +234,8 @@ def test_embedding_target_timeout_follows_the_provider(services: Services, fake_
     from aifred.providers import embed_target
 
     local = add(services, fake_llm())  # a local engine: first_token 120 s, so a cold model load may take up to 240 s
-    hosted = services.providers.create({"slug": "g", "type": "groq"})  # hosted: first_token 30 s
-    assert embed_target(local, "m", None).total == 240.0 and embed_target(hosted, "m", "k").total == 60.0
+    hosted = services.providers.create({"slug": "g", "type": "groq"})  # hosted: first_token 60 s
+    assert embed_target(local, "m", None).total == 240.0 and embed_target(hosted, "m", "k").total == 120.0
     short = services.providers.update(local.id, {"total_timeout": 100})
     assert embed_target(short, "m", None).total == 100.0  # never longer than the provider's own total
     assert embed_target(hosted, "m", "k").url.endswith("/openai/v1/embeddings") and embed_target(hosted, "m", "k").api_key == "k"

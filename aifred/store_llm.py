@@ -21,6 +21,7 @@ _PROVIDER_FIELDS = (
 )
 _MODEL_FIELDS = (
     "context_window", "tools", "streaming", "vision", "thinking_control", "price_in", "price_out", "kind",
+    "first_token_timeout",
 )
 _EMBEDDING_NAME_HINTS = ("embed", "bge-", "e5-", "gte-", "minilm", "mpnet", "nomic-bert")
 
